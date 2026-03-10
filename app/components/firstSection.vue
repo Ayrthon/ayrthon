@@ -1,6 +1,12 @@
 <template>
   <section class="landing">
     <div class="landing__overlay">
+      <nav class="landing__nav">
+        <NuxtLink to="/socials" class="landing__nav-link">
+          Socials
+        </NuxtLink>
+      </nav>
+
       <main class="landing__content">
         <div class="landing__copy">
           <p class="landing__eyebrow">R&B Singer - Songwriter / Audio Engineer</p>
@@ -88,6 +94,37 @@ const year = new Date().getFullYear();
   justify-content: space-between;
 }
 
+.landing__nav {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 24px;
+}
+
+.landing__nav-link {
+  font-size: 0.85rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  padding: 6px 14px;
+  border-radius: 999px;
+  color: #dfe6ff;
+  text-decoration: none;
+  backdrop-filter: blur(10px);
+  background-color: rgba(4, 12, 40, 0.8);
+  box-shadow: 0 0 0 1px rgba(109, 152, 255, 0.4);
+  transition:
+    background-color 0.2s ease,
+    color 0.2s ease,
+    box-shadow 0.2s ease,
+    transform 0.15s ease;
+}
+
+.landing__nav-link:hover {
+  background-color: rgba(29, 185, 84, 0.18);
+  color: #ffffff;
+  box-shadow: 0 0 0 1px rgba(29, 185, 84, 0.8);
+  transform: translateY(-1px);
+}
+
 .landing__content {
   flex: 1;
   display: flex;
@@ -171,6 +208,10 @@ const year = new Date().getFullYear();
 
   .landing__overlay {
     padding: 24px 20px 32px;
+  }
+
+  .landing__nav {
+    justify-content: center;
   }
 
   .landing__eyebrow {

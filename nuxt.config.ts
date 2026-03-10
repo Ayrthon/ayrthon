@@ -4,7 +4,14 @@ export default defineNuxtConfig({
   compatibilityDate: "2025-07-15",
   devtools: { enabled: false },
 
-  css: ["vuetify/styles", "assets/fonts/fonts.css"],
+  // Enable file-based routing from the `pages/` directory
+  pages: true,
+
+  css: [
+    "vuetify/styles",
+    "@mdi/font/css/materialdesignicons.css",
+    "assets/fonts/fonts.css",
+  ],
 
   build: {
     transpile: ["vuetify"],
