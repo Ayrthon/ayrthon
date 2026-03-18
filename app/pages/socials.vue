@@ -97,6 +97,12 @@ const links = [
     href: "https://ayrthon.bandcamp.com/",
     iconSrc: "https://cdn.simpleicons.org/bandcamp/ffffff",
   },
+    {
+    key: "engineears",
+    label: "EngineEars",
+    href: "https://engineears.com/ayrthon",
+    /* iconSrc: "https://cdn.simpleicons.org/engineears/ffffff", */
+  },
 ];
 </script>
 
@@ -273,6 +279,10 @@ const links = [
 
 .socials__button--bandcamp {
   background: linear-gradient(90deg, #0f172a, #38bdf8);
+}
+
+.socials__button--engineears {
+  background: linear-gradient(90deg, #0f172a,rgb(82, 82, 82));
 }
 
 .socials__button:hover {
