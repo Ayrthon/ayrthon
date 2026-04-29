@@ -1,5 +1,9 @@
 import type { ComputedRef, Ref } from "vue";
 import type { JobEntry, StoredState } from "~~/shared/planning-state";
+import {
+  parseComfortTargetFromStored,
+  parseDayRateFromStored,
+} from "~~/shared/planning-state";
 
 export type { JobEntry, StoredState } from "~~/shared/planning-state";
 
@@ -51,16 +55,16 @@ export function useJobYearPlanner(syncOverride?: PlanningSyncRef) {
     applyingRemote = true;
     try {
       const data = await fetchPlanningStateOnce();
-      if (typeof data.comfortTarget === "number" && data.comfortTarget > 0) {
-        comfortTarget.value = data.comfortTarget;
-      }
-      if (
-        typeof data.dayRate === "number"
-        && Number.isFinite(data.dayRate)
-        && data.dayRate >= 0
-      ) {
-        dayRate.value = Math.round(data.dayRate * 100) / 100;
-      }
+      const raw = data as Record<string, unknown>;
+      const ct =
+        parseComfortTargetFromStored(data.comfortTarget)
+        ?? parseComfortTargetFromStored(raw["comfort_target"]);
+      if (ct !== undefined) comfortTarget.value = ct;
+
+      const dr =
+        parseDayRateFromStored(data.dayRate)
+        ?? parseDayRateFromStored(raw["day_rate"]);
+      if (dr !== undefined) dayRate.value = dr;
       if (Array.isArray(data.entries)) {
         entries.value = data.entries.filter(
           (e) =>
