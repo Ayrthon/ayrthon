@@ -299,6 +299,19 @@ export function useJobYearPlanner(syncOverride?: PlanningSyncRef) {
     entries.value = entries.value.filter((e) => e.id !== id);
   }
 
+  /** Replace project name and/or dates for an existing job (list editor). */
+  function updateEntry(id: string, patch: { project: string; dates: string[] }) {
+    const clean = patch.project.trim();
+    if (!clean || !patch.dates.length) return false;
+    const normalized = [...new Set(patch.dates.map(toIsoDateString))].sort();
+    const idx = entries.value.findIndex((e) => e.id === id);
+    if (idx === -1) return false;
+    entries.value = entries.value.map((e, i) =>
+      i === idx ? { ...e, project: clean, dates: normalized } : e,
+    );
+    return true;
+  }
+
   function setComfortTarget(n: number) {
     const v = Math.round(Number(n));
     if (Number.isFinite(v) && v > 0) comfortTarget.value = v;
@@ -321,6 +334,7 @@ export function useJobYearPlanner(syncOverride?: PlanningSyncRef) {
     monthlyPlan,
     addEntry,
     removeEntry,
+    updateEntry,
     setComfortTarget,
     setDayRate,
     flushSave,

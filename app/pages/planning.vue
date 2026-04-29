@@ -218,6 +218,14 @@
                   </v-list-item-subtitle>
                   <template #append>
                     <v-btn
+                      aria-label="Edit job"
+                      class="touch-icon"
+                      icon="mdi-pencil-outline"
+                      size="large"
+                      variant="text"
+                      @click.stop="openEditJob(e)"
+                    />
+                    <v-btn
                       aria-label="Remove entry"
                       class="touch-icon"
                       icon="mdi-delete-outline"
@@ -355,6 +363,64 @@
         </v-card>
       </v-dialog>
 
+      <v-dialog
+        v-model="editJobOpen"
+        class="job-edit-dialog"
+        max-width="440"
+        scroll-strategy="close"
+      >
+        <v-card
+          class="job-edit-card surface-card draft-bubble-theme pa-4"
+          rounded="xl"
+          variant="flat"
+        >
+          <v-card-title class="job-edit-card__title px-0 pt-0 pb-3">
+            Edit job
+          </v-card-title>
+          <v-card-text class="px-0 pb-2 pt-0">
+            <v-text-field
+              v-model="editJobProject"
+              class="plan-field"
+              density="comfortable"
+              hide-details="auto"
+              label="Project name"
+              variant="outlined"
+              @keyup.enter="saveEditJob"
+            />
+            <v-textarea
+              v-model="editJobDatesText"
+              auto-grow
+              class="plan-field mt-3"
+              density="comfortable"
+              hide-details="auto"
+              hint="One calendar date per line: YYYY-MM-DD. You can also separate dates with commas or semicolons."
+              label="Work dates"
+              persistent-hint
+              rows="5"
+              variant="outlined"
+            />
+          </v-card-text>
+          <v-card-actions class="job-edit-actions px-0 pb-0 pt-2">
+            <v-spacer />
+            <v-btn
+              rounded="xl"
+              variant="text"
+              @click="editJobOpen = false"
+            >
+              Cancel
+            </v-btn>
+            <v-btn
+              color="primary"
+              rounded="xl"
+              variant="flat"
+              @click="saveEditJob"
+            >
+              Save
+            </v-btn>
+          </v-card-actions>
+        </v-card>
+      </v-dialog>
+
       <v-snackbar
         v-model="snack"
         class="plan-snackbar"
@@ -379,7 +445,7 @@
 </template>
 
 <script setup lang="ts">
-import type { JobEntry } from "~/composables/useJobYearPlanner";
+import { toIsoDateString, type JobEntry } from "~/composables/useJobYearPlanner";
 
 useHead({
   title: "Planning · Ayrthon",
@@ -409,6 +475,7 @@ const {
   datesByDay,
   addEntry,
   removeEntry,
+  updateEntry,
   setComfortTarget,
   setDayRate,
   flushSave,
@@ -454,6 +521,11 @@ const snackText = ref("");
 const comfortSettingsOpen = ref(false);
 const comfortDraft = ref(48);
 const dayRateDraft = ref(0);
+
+const editJobOpen = ref(false);
+const editJobId = ref<string | null>(null);
+const editJobProject = ref("");
+const editJobDatesText = ref("");
 
 watch(comfortSettingsOpen, (open) => {
   if (open) {
@@ -646,6 +718,48 @@ function submitEntry() {
   formProject.value = "";
   draftDates.value = [];
   snackText.value = "Saved.";
+  snack.value = true;
+}
+
+function parseJobDatesInput(raw: string): string[] {
+  const chunks = raw.split(/[\n,;]+/).flatMap((chunk) => chunk.split(/\s+/));
+  const seen = new Set<string>();
+  for (const part of chunks) {
+    const s = part.trim();
+    if (!s) continue;
+    const iso = toIsoDateString(s);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) seen.add(iso);
+  }
+  return [...seen].sort();
+}
+
+function openEditJob(e: JobEntry) {
+  editJobId.value = e.id;
+  editJobProject.value = e.project;
+  editJobDatesText.value = e.dates.join("\n");
+  editJobOpen.value = true;
+}
+
+function saveEditJob() {
+  const id = editJobId.value;
+  if (!id) return;
+  const proj = editJobProject.value.trim();
+  const dates = parseJobDatesInput(editJobDatesText.value);
+  if (!proj || !dates.length) {
+    snackText.value =
+      "Enter a project name and at least one valid date (YYYY-MM-DD).";
+    snack.value = true;
+    return;
+  }
+  const ok = updateEntry(id, { project: proj, dates });
+  if (!ok) {
+    snackText.value = "Could not update that job.";
+    snack.value = true;
+    return;
+  }
+  editJobOpen.value = false;
+  editJobId.value = null;
+  snackText.value = "Job updated.";
   snack.value = true;
 }
 
@@ -1444,13 +1558,15 @@ html.theme-dark .draft-bubble-theme {
   opacity: 0.32 !important;
 }
 
-.comfort-settings-card.draft-bubble-theme.surface-card {
+.comfort-settings-card.draft-bubble-theme.surface-card,
+.job-edit-card.draft-bubble-theme.surface-card {
   color: var(--plan-text);
   color-scheme: light;
   background-color: var(--plan-surface) !important;
 }
 
-html.theme-dark .comfort-settings-card.draft-bubble-theme.surface-card {
+html.theme-dark .comfort-settings-card.draft-bubble-theme.surface-card,
+html.theme-dark .job-edit-card.draft-bubble-theme.surface-card {
   color-scheme: dark;
 }
 
@@ -1472,6 +1588,21 @@ html.theme-dark .comfort-settings-card.draft-bubble-theme.surface-card {
 }
 
 .comfort-settings-actions {
+  gap: 8px;
+}
+
+.job-edit-dialog :deep(.v-overlay__content) {
+  width: min(100%, 440px);
+}
+
+.job-edit-card__title {
+  font-size: 1.125rem !important;
+  font-weight: 700 !important;
+  color: var(--plan-text) !important;
+  letter-spacing: -0.01em;
+}
+
+.job-edit-actions {
   gap: 8px;
 }
 
