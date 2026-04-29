@@ -2,10 +2,18 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import process from "node:process";
 import type { StoredState } from "~~/shared/planning-state";
+import { parsePlanningStoredState } from "./planningParse";
+import {
+  isSupabaseConfigured,
+  loadPlanningFromSupabase,
+  savePlanningToSupabase,
+} from "./planningSupabase";
+
+export { parsePlanningStoredState };
 
 const BLOB_KEY = "planner-state";
 
-/** Stable path for local dev (`nuxt dev`). Do not derive from `import.meta.url` — bundled chunks live under `.output/` and would scatter `.data/` files. */
+/** Stable path for local dev (`nuxt dev`). */
 function planningDataFile(): string {
   return resolve(process.cwd(), ".data/planning-state.json");
 }
@@ -24,11 +32,14 @@ function useFilesystemBackend(): boolean {
 
   if (onNetlifyCompute) return false;
 
-  // Local `nuxt dev`, `nuxt preview`, tests — no Lambda / Netlify Blobs context
   return true;
 }
 
 export async function loadPlanningState(): Promise<StoredState | null> {
+  if (isSupabaseConfigured()) {
+    return await loadPlanningFromSupabase();
+  }
+
   if (useFilesystemBackend()) {
     try {
       const p = planningDataFile();
@@ -64,6 +75,11 @@ export async function loadPlanningState(): Promise<StoredState | null> {
 }
 
 export async function savePlanningState(state: StoredState): Promise<void> {
+  if (isSupabaseConfigured()) {
+    await savePlanningToSupabase(state);
+    return;
+  }
+
   const payload = JSON.stringify(state);
 
   if (useFilesystemBackend()) {
@@ -76,34 +92,4 @@ export async function savePlanningState(state: StoredState): Promise<void> {
   const { getStore } = await import("@netlify/blobs");
   const store = getStore("job-planner");
   await store.set(BLOB_KEY, payload);
-}
-
-/** Exported for PUT validation */
-export function parsePlanningStoredState(data: unknown): StoredState | null {
-  if (!data || typeof data !== "object") return null;
-  const d = data as Record<string, unknown>;
-  const comfortTarget =
-    typeof d.comfortTarget === "number" && d.comfortTarget > 0
-      ? d.comfortTarget
-      : 48;
-  let dayRate: number | undefined;
-  if (
-    typeof d.dayRate === "number"
-    && Number.isFinite(d.dayRate)
-    && d.dayRate >= 0
-  ) {
-    dayRate = Math.round(d.dayRate * 100) / 100;
-  }
-  const rawEntries = Array.isArray(d.entries) ? d.entries : [];
-  const entries = rawEntries.filter(
-    (e): e is StoredState["entries"][number] =>
-      !!(
-        e
-        && typeof e === "object"
-        && typeof (e as { id?: unknown }).id === "string"
-        && typeof (e as { project?: unknown }).project === "string"
-        && Array.isArray((e as { dates?: unknown }).dates)
-      ),
-  );
-  return { comfortTarget, dayRate, entries };
 }
