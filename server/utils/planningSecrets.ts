@@ -1,8 +1,11 @@
+import process from "node:process";
 import type { H3Event } from "h3";
 
 /**
- * Read env without referencing `process.env.FOO` as a static identifier so Rollup/esbuild
- * does not replace it at build time with `""` when secrets exist only at Lambda runtime.
+ * Read secrets from the live `process.env` object.
+ *
+ * Import `process` from `node:process` so Rollup/Nitro does not substitute a build-time
+ * snapshot of `process.env` (which would stay empty on Netlify even when Functions env vars exist).
  */
 function envFirst(keys: readonly string[]): string {
   for (const key of keys) {
@@ -17,13 +20,13 @@ function envFirst(keys: readonly string[]): string {
 /**
  * Password + session signing secret for `/api/planning/*`.
  *
- * Prefer Nitro `runtimeConfig`, then dynamic `process.env` lookups (see `envFirst`).
+ * Prefer Nitro `runtimeConfig`, then live `process.env` (see `envFirst`).
  *
- * Supported Netlify keys (use `NUXT_*` first; duplicates without prefix help typos):
+ * Supported Netlify keys:
  * - Password: `NUXT_PLANNING_PASSWORD`, `PLANNING_PASSWORD`
  * - Session: `NUXT_PLANNING_SESSION_SECRET`, `PLANNING_SESSION_SECRET`
  *
- * Optional: set `PLANNING_AUTH_DEBUG=1` (no secret values logged) to print which keys exist.
+ * Optional: `PLANNING_AUTH_DEBUG=1` logs which keys exist (booleans only).
  */
 export function getPlanningSecrets(event: H3Event) {
   const config = useRuntimeConfig(event);
