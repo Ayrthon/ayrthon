@@ -3,6 +3,7 @@ import { dirname, resolve } from "node:path";
 import process from "node:process";
 import type { H3Event } from "h3";
 import type { StoredState } from "~~/shared/planning-state";
+import { mergePlannerStateForSave } from "~~/shared/planning-merge";
 import { parsePlanningStoredState } from "./planningParse";
 import {
   isSupabaseConfigured,
@@ -77,14 +78,17 @@ export async function loadPlanningState(event: H3Event): Promise<StoredState | n
 
 export async function savePlanningState(
   event: H3Event,
-  state: StoredState,
+  incoming: StoredState,
 ): Promise<void> {
+  const existing = await loadPlanningState(event);
+  const merged = mergePlannerStateForSave(existing, incoming);
+
   if (isSupabaseConfigured(event)) {
-    await savePlanningToSupabase(event, state);
+    await savePlanningToSupabase(event, merged);
     return;
   }
 
-  const payload = JSON.stringify(state);
+  const payload = JSON.stringify(merged);
 
   if (useFilesystemBackend()) {
     const p = planningDataFile();
