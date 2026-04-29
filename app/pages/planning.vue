@@ -84,9 +84,25 @@
               variant="underlined"
             />
           </div>
-          <p class="planning-sub">
-            Track work days against your yearly comfort target. Changes sync to the server while you are signed in.
-          </p>
+          <div class="planning-sub-row">
+            <p class="planning-sub mb-0">
+              Track work days against your yearly comfort target. Changes sync to the server while you are signed in.
+            </p>
+            <v-btn
+              class="planning-sync-btn"
+              density="comfortable"
+              rounded="lg"
+              size="small"
+              variant="tonal"
+              color="primary"
+              prepend-icon="mdi-sync"
+              :disabled="!hydrated"
+              :loading="syncRefreshing"
+              @click="onSyncNow"
+            >
+              Sync now
+            </v-btn>
+          </div>
         </header>
 
         <v-row class="controls-row" dense>
@@ -471,6 +487,8 @@ const {
   comfortTarget,
   dayRate,
   entries,
+  hydrated,
+  refreshPlanningFromServer,
   uniqueDaysInSelectedYear,
   datesByDay,
   addEntry,
@@ -481,6 +499,19 @@ const {
   markPlanningSettingsSaved,
   flushSave,
 } = useJobYearPlanner(planningSyncEnabled);
+
+const syncRefreshing = ref(false);
+
+async function onSyncNow() {
+  syncRefreshing.value = true;
+  try {
+    await refreshPlanningFromServer();
+    snackText.value = "Synced with server.";
+    snack.value = true;
+  } finally {
+    syncRefreshing.value = false;
+  }
+}
 
 async function signOut() {
   await flushSave();
@@ -1378,6 +1409,22 @@ html.theme-dark .draft-bubble-theme {
   font-size: 1.0625rem;
   color: var(--plan-muted);
   text-align: center;
+}
+
+.planning-sub-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.65rem 1rem;
+}
+
+.planning-sub-row .planning-sub {
+  flex: 1 1 14rem;
+  min-width: 0;
+}
+
+.planning-sync-btn {
+  flex-shrink: 0;
 }
 
 .planning-head {

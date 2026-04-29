@@ -223,13 +223,11 @@ export function mergePlannerEntriesWithRemovals(
   removedJobIds?: string[];
   jobEditedAt?: Record<string, string>;
 } {
+  /** Union tombstones only — do **not** drop an id just because a stale client still lists it in `entries`. */
   const mergedRemoved = new Set<string>([
     ...(existing?.removedJobIds ?? []),
     ...(incoming.removedJobIds ?? []),
   ]);
-  for (const e of incoming.entries) {
-    if (e?.id) mergedRemoved.delete(e.id);
-  }
   const merged = mergeJobEntriesWithEditTimes(existing, incoming);
   const filtered = merged.entries.filter((e) => !mergedRemoved.has(e.id));
 

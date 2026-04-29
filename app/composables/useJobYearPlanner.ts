@@ -70,6 +70,30 @@ export function useJobYearPlanner(syncOverride?: PlanningSyncRef) {
   let applyingRemote = false;
 
   let saveTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Background poll while sync is on — pulls merged server state for other devices’ edits. */
+  let pollTimer: ReturnType<typeof setInterval> | null = null;
+
+  const PLANNING_POLL_MS = 60_000;
+
+  function clearPlanningPoll(): void {
+    if (pollTimer !== null) {
+      clearInterval(pollTimer);
+      pollTimer = null;
+    }
+  }
+
+  function schedulePlanningPoll(): void {
+    clearPlanningPoll();
+    if (!import.meta.client) return;
+    pollTimer = setInterval(() => {
+      if (!syncEnabled.value) return;
+      if (typeof document !== "undefined" && document.visibilityState !== "visible") {
+        return;
+      }
+      if (applyingRemote) return;
+      void pullLoad();
+    }, PLANNING_POLL_MS);
+  }
 
   async function pullLoad() {
     applyingRemote = true;
@@ -195,6 +219,7 @@ export function useJobYearPlanner(syncOverride?: PlanningSyncRef) {
   watch(
     syncEnabled,
     async (v, prev) => {
+      clearPlanningPoll();
       if (!v) {
         if (prev === true) {
           comfortTarget.value = 48;
@@ -209,6 +234,7 @@ export function useJobYearPlanner(syncOverride?: PlanningSyncRef) {
       }
       hydrated.value = false;
       await pullLoad();
+      schedulePlanningPoll();
     },
     { immediate: true },
   );
@@ -225,6 +251,7 @@ export function useJobYearPlanner(syncOverride?: PlanningSyncRef) {
   if (import.meta.client) {
     const hotFlush = () => void flushSave({ keepalive: true });
     let visibleRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+    let focusRefreshTimer: ReturnType<typeof setTimeout> | null = null;
     /** Avoid duplicate GET when page starts visible (initial pullLoad runs via watch). */
     let sawHiddenSinceLoad = false;
     const refetchWhenVisible = () => {
@@ -235,6 +262,14 @@ export function useJobYearPlanner(syncOverride?: PlanningSyncRef) {
         visibleRefreshTimer = null;
         void pullLoad();
       }, 120);
+    };
+    const schedulePullFromFocus = () => {
+      if (!syncEnabled.value) return;
+      if (focusRefreshTimer) clearTimeout(focusRefreshTimer);
+      focusRefreshTimer = setTimeout(() => {
+        focusRefreshTimer = null;
+        void pullLoad();
+      }, 200);
     };
     const onVis = () => {
       const vs = document.visibilityState;
@@ -252,16 +287,29 @@ export function useJobYearPlanner(syncOverride?: PlanningSyncRef) {
       /** BFCache restore can resurrect stale Vue state without remounting — force reload from server. */
       if (e.persisted) void pullLoad();
     };
+    const onFocus = () => {
+      /** Switching between browser windows / devices — pull latest merged snapshot. */
+      schedulePullFromFocus();
+    };
+    const onOnline = () => {
+      void pullLoad();
+    };
     window.addEventListener("pagehide", hotFlush);
     window.addEventListener("beforeunload", hotFlush);
     window.addEventListener("pageshow", onPageShow);
+    window.addEventListener("focus", onFocus);
+    window.addEventListener("online", onOnline);
     document.addEventListener("visibilitychange", onVis);
     onScopeDispose(() => {
       window.removeEventListener("pagehide", hotFlush);
       window.removeEventListener("beforeunload", hotFlush);
       window.removeEventListener("pageshow", onPageShow);
+      window.removeEventListener("focus", onFocus);
+      window.removeEventListener("online", onOnline);
       document.removeEventListener("visibilitychange", onVis);
       if (visibleRefreshTimer) clearTimeout(visibleRefreshTimer);
+      if (focusRefreshTimer) clearTimeout(focusRefreshTimer);
+      clearPlanningPoll();
     });
   }
 
@@ -336,11 +384,16 @@ export function useJobYearPlanner(syncOverride?: PlanningSyncRef) {
     const clean = project.trim();
     if (!clean || !dates.length) return;
     const normalized = [...new Set(dates.map(toIsoDateString))].sort();
+    const id = crypto.randomUUID();
     entries.value.push({
-      id: crypto.randomUUID(),
+      id,
       project: clean,
       dates: normalized,
     });
+    jobEditedAt.value = {
+      ...jobEditedAt.value,
+      [id]: new Date().toISOString(),
+    };
   }
 
   function removeEntry(id: string) {
@@ -393,6 +446,8 @@ export function useJobYearPlanner(syncOverride?: PlanningSyncRef) {
     dayRate,
     entries,
     hydrated,
+    /** Pull latest planner JSON from the server (same as initial hydrate). */
+    refreshPlanningFromServer: pullLoad,
     uniqueDaysInSelectedYear,
     datesByDay,
     monthlyPlan,
