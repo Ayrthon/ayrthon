@@ -2,6 +2,9 @@
   <section class="landing">
     <div class="landing__overlay">
       <nav class="landing__nav">
+        <NuxtLink class="landing__nav-link" to="/planning">
+          Planning
+        </NuxtLink>
         <NuxtLink to="/socials" class="landing__nav-link">
           Socials
         </NuxtLink>
@@ -97,6 +100,8 @@ const year = new Date().getFullYear();
 .landing__nav {
   display: flex;
   justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
   margin-bottom: 24px;
 }
 
