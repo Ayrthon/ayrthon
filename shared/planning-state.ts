@@ -9,6 +9,16 @@ export interface StoredState {
   /** Revenue per logged day (EUR; estimates use EUR). */
   dayRate?: number;
   entries: JobEntry[];
+  /**
+   * ISO8601 — set when the user saves Planning settings (comfort + day rate).
+   * Used server-side to merge concurrent edits without a stale tab overwriting newer settings.
+   */
+  settingsEditedAt?: string;
+  /**
+   * Job ids explicitly deleted on any device. Union-merged on save and applied after entry union
+   * so removes survive concurrent edits (otherwise union-only merge resurrects deleted rows).
+   */
+  removedJobIds?: string[];
 }
 
 /** Normalize API / DB payloads (strings, snake_case keys). */

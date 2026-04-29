@@ -53,6 +53,8 @@ export function useJobYearPlanner(syncOverride?: PlanningSyncRef) {
   const comfortTarget = ref(48);
   const dayRate = ref(0);
   const entries = ref<JobEntry[]>([]);
+  /** Tombstones synced with server — required so merged PUTs do not resurrect deleted jobs. */
+  const removedJobIds = ref<string[]>([]);
   /** True after remote state applied (or failed attempt while sync enabled). */
   const hydrated = ref(false);
 
@@ -83,6 +85,14 @@ export function useJobYearPlanner(syncOverride?: PlanningSyncRef) {
             && typeof e.project === "string"
             && Array.isArray(e.dates),
         );
+      }
+      const rm = raw.removedJobIds ?? raw["removed_job_ids"];
+      if (Array.isArray(rm)) {
+        removedJobIds.value = [...new Set(
+          rm.filter((x): x is string => typeof x === "string" && x.trim().length > 0),
+        )].sort();
+      } else {
+        removedJobIds.value = [];
       }
     } catch (e: unknown) {
       const code = getFetchStatus(e);
@@ -126,6 +136,9 @@ export function useJobYearPlanner(syncOverride?: PlanningSyncRef) {
       comfortTarget: comfortTarget.value,
       dayRate: dayRate.value,
       entries: entries.value,
+      ...(removedJobIds.value.length
+        ? { removedJobIds: [...removedJobIds.value] }
+        : {}),
     };
     try {
       await $fetch("/api/planning/data", {
@@ -155,6 +168,7 @@ export function useJobYearPlanner(syncOverride?: PlanningSyncRef) {
           comfortTarget.value = 48;
           dayRate.value = 0;
           entries.value = [];
+          removedJobIds.value = [];
         }
         hydrated.value = false;
         return;
@@ -166,7 +180,7 @@ export function useJobYearPlanner(syncOverride?: PlanningSyncRef) {
   );
 
   watch(
-    [comfortTarget, dayRate, entries],
+    [comfortTarget, dayRate, entries, removedJobIds],
     () => {
       if (!hydrated.value || !syncEnabled.value || applyingRemote) return;
       scheduleSave();
@@ -297,6 +311,9 @@ export function useJobYearPlanner(syncOverride?: PlanningSyncRef) {
 
   function removeEntry(id: string) {
     entries.value = entries.value.filter((e) => e.id !== id);
+    const next = new Set(removedJobIds.value);
+    next.add(id);
+    removedJobIds.value = [...next].sort();
   }
 
   /** Replace project name and/or dates for an existing job (list editor). */

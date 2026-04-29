@@ -35,5 +35,21 @@ export function parsePlanningStoredState(data: unknown): StoredState | null {
         && Array.isArray((e as { dates?: unknown }).dates)
       ),
   );
-  return { comfortTarget, dayRate, entries };
+  const seRaw = d.settingsEditedAt ?? d["settings_edited_at"];
+  let settingsEditedAt: string | undefined;
+  if (typeof seRaw === "string" && Number.isFinite(Date.parse(seRaw))) {
+    settingsEditedAt = seRaw;
+  }
+  const rmRaw = d.removedJobIds ?? d["removed_job_ids"];
+  let removedJobIds: string[] | undefined;
+  if (Array.isArray(rmRaw)) {
+    const ids = [...new Set(
+      rmRaw.filter((x): x is string => typeof x === "string" && x.trim().length > 0),
+    )].sort();
+    if (ids.length) removedJobIds = ids;
+  }
+  const base: StoredState = { comfortTarget, dayRate, entries };
+  if (settingsEditedAt) base.settingsEditedAt = settingsEditedAt;
+  if (removedJobIds) base.removedJobIds = removedJobIds;
+  return base;
 }
