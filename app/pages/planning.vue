@@ -478,6 +478,7 @@ const {
   updateEntry,
   setComfortTarget,
   setDayRate,
+  markPlanningSettingsSaved,
   flushSave,
 } = useJobYearPlanner(planningSyncEnabled);
 
@@ -562,6 +563,7 @@ function saveComfortSettings() {
   }
   setComfortTarget(n);
   setDayRate(rate);
+  markPlanningSettingsSaved();
   comfortSettingsOpen.value = false;
 }
 

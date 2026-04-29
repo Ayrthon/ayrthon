@@ -55,6 +55,12 @@ export function useJobYearPlanner(syncOverride?: PlanningSyncRef) {
   const entries = ref<JobEntry[]>([]);
   /** Tombstones synced with server — required so merged PUTs do not resurrect deleted jobs. */
   const removedJobIds = ref<string[]>([]);
+  /**
+   * Mirrors persisted `settingsEditedAt` and is bumped when the user saves Planning settings.
+   * Sent on PUT so merge can accept intentional edits; omitting it while the blob already has
+   * a stamp would leave stale-tab autosaves from overwriting comfort/day rate by mistake.
+   */
+  const settingsEditedAt = ref<string | undefined>(undefined);
   /** True after remote state applied (or failed attempt while sync enabled). */
   const hydrated = ref(false);
 
@@ -93,6 +99,12 @@ export function useJobYearPlanner(syncOverride?: PlanningSyncRef) {
         )].sort();
       } else {
         removedJobIds.value = [];
+      }
+      const seRaw = raw.settingsEditedAt ?? raw["settings_edited_at"];
+      if (typeof seRaw === "string" && Number.isFinite(Date.parse(seRaw))) {
+        settingsEditedAt.value = seRaw;
+      } else {
+        settingsEditedAt.value = undefined;
       }
     } catch (e: unknown) {
       const code = getFetchStatus(e);
@@ -139,6 +151,9 @@ export function useJobYearPlanner(syncOverride?: PlanningSyncRef) {
       ...(removedJobIds.value.length
         ? { removedJobIds: [...removedJobIds.value] }
         : {}),
+      ...(settingsEditedAt.value
+        ? { settingsEditedAt: settingsEditedAt.value }
+        : {}),
     };
     try {
       await $fetch("/api/planning/data", {
@@ -169,6 +184,7 @@ export function useJobYearPlanner(syncOverride?: PlanningSyncRef) {
           dayRate.value = 0;
           entries.value = [];
           removedJobIds.value = [];
+          settingsEditedAt.value = undefined;
         }
         hydrated.value = false;
         return;
@@ -180,7 +196,7 @@ export function useJobYearPlanner(syncOverride?: PlanningSyncRef) {
   );
 
   watch(
-    [comfortTarget, dayRate, entries, removedJobIds],
+    [comfortTarget, dayRate, entries, removedJobIds, settingsEditedAt],
     () => {
       if (!hydrated.value || !syncEnabled.value || applyingRemote) return;
       scheduleSave();
@@ -340,6 +356,11 @@ export function useJobYearPlanner(syncOverride?: PlanningSyncRef) {
     dayRate.value = Math.round(v * 100) / 100;
   }
 
+  /** Call when the user confirms Planning settings (comfort + day rate) so merged saves accept new values. */
+  function markPlanningSettingsSaved() {
+    settingsEditedAt.value = new Date().toISOString();
+  }
+
   return {
     year,
     comfortTarget,
@@ -354,6 +375,7 @@ export function useJobYearPlanner(syncOverride?: PlanningSyncRef) {
     updateEntry,
     setComfortTarget,
     setDayRate,
+    markPlanningSettingsSaved,
     flushSave,
     toIsoDateString,
   };
