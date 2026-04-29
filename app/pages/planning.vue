@@ -86,7 +86,7 @@
           </div>
           <div class="planning-sub-row">
             <p class="planning-sub mb-0">
-              Track work days against your yearly comfort target. Changes sync to the server while you are signed in.
+              Track work days against your yearly comfort target.
             </p>
             <v-btn
               class="planning-sync-btn"
