@@ -5,12 +5,24 @@ import { parsePlanningStoredState } from "./planningParse";
 
 const ROW_ID = "default";
 
+/** Avoid Nitro build-time `process.env` snapshots — match `planningSecrets.ts`. */
+function envFirst(keys: readonly string[]): string {
+  for (const key of keys) {
+    const raw = process.env[key];
+    if (typeof raw === "string" && raw.length > 0) return raw.trimEnd();
+  }
+  return "";
+}
+
 let client: SupabaseClient | null | undefined;
 
 function getClient(): SupabaseClient | null {
   if (client === undefined) {
-    const url = process.env["SUPABASE_URL"]?.trim();
-    const key = process.env["SUPABASE_SERVICE_ROLE_KEY"]?.trim();
+    const url = envFirst(["SUPABASE_URL", "NUXT_SUPABASE_URL"]);
+    const key = envFirst([
+      "SUPABASE_SERVICE_ROLE_KEY",
+      "NUXT_SUPABASE_SERVICE_ROLE_KEY",
+    ]);
     if (!url || !key) {
       client = null;
     } else {

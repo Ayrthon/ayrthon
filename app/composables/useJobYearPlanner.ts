@@ -110,17 +110,15 @@ export function useJobYearPlanner() {
         keepalive: opts?.keepalive === true,
       });
     } catch (e: unknown) {
-      if (import.meta.dev) {
-        console.warn("[planning] PUT failed:", getFetchStatus(e), e);
-      }
+      console.error("[planning] PUT /api/planning/data failed:", getFetchStatus(e), e);
     }
   }
 
-  /** Debounced save — short window so shift-refresh loses less often. */
+  /** Debounced save — next macrotick batches Vue updates without long delay before refresh. */
   function scheduleSave() {
     if (!syncEnabled.value || typeof window === "undefined") return;
     if (saveTimer) clearTimeout(saveTimer);
-    saveTimer = setTimeout(() => void flushSave(), 90);
+    saveTimer = setTimeout(() => void flushSave(), 0);
   }
 
   watch(

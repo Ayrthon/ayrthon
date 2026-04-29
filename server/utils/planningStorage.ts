@@ -8,6 +8,7 @@ import {
   loadPlanningFromSupabase,
   savePlanningToSupabase,
 } from "./planningSupabase";
+import { getPlannerBlobStore } from "./netlifyPlannerBlobStore";
 
 export { parsePlanningStoredState };
 
@@ -51,8 +52,7 @@ export async function loadPlanningState(): Promise<StoredState | null> {
     }
   }
 
-  const { getStore } = await import("@netlify/blobs");
-  const store = getStore("job-planner");
+  const store = await getPlannerBlobStore();
   const raw = await store.get(BLOB_KEY);
   if (raw === null || raw === undefined) return null;
 
@@ -89,7 +89,6 @@ export async function savePlanningState(state: StoredState): Promise<void> {
     return;
   }
 
-  const { getStore } = await import("@netlify/blobs");
-  const store = getStore("job-planner");
+  const store = await getPlannerBlobStore();
   await store.set(BLOB_KEY, payload);
 }
