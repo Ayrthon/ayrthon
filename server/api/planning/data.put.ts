@@ -3,11 +3,11 @@ import {
   parsePlanningStoredState,
   savePlanningState,
 } from "../../utils/planningStorage";
+import { getPlanningSecrets } from "../../utils/planningSecrets";
 import { requirePlanningAuth } from "../../utils/requirePlanningAuth";
 
 export default defineEventHandler(async (event) => {
-  const config = useRuntimeConfig(event);
-  const secret = config.planningSessionSecret as string;
+  const { sessionSecret: secret } = getPlanningSecrets(event);
   requirePlanningAuth(event, secret);
 
   const body = await readBody(event).catch(() => null);

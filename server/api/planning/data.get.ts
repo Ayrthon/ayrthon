@@ -1,5 +1,6 @@
 import type { StoredState } from "~~/shared/planning-state";
 import { loadPlanningState } from "../../utils/planningStorage";
+import { getPlanningSecrets } from "../../utils/planningSecrets";
 import { requirePlanningAuth } from "../../utils/requirePlanningAuth";
 
 const emptyState = (): StoredState => ({
@@ -8,8 +9,7 @@ const emptyState = (): StoredState => ({
 });
 
 export default defineEventHandler(async (event) => {
-  const config = useRuntimeConfig(event);
-  const secret = config.planningSessionSecret as string;
+  const { sessionSecret: secret } = getPlanningSecrets(event);
   requirePlanningAuth(event, secret);
 
   const state = await loadPlanningState();

@@ -1,27 +1,26 @@
-import { createError, readBody, setCookie } from "h3";
+import { createError, getRequestURL, readBody, setCookie } from "h3";
 import {
   COOKIE_NAME,
   signPlanningSession,
   verifyPlanningPassword,
 } from "../../utils/planningSession";
+import { getPlanningSecrets } from "../../utils/planningSecrets";
 
 export default defineEventHandler(async (event) => {
-  const config = useRuntimeConfig(event);
-  const password = config.planningPassword as string;
-  const secret = config.planningSessionSecret as string;
+  const { password, sessionSecret: secret } = getPlanningSecrets(event);
 
   if (!secret || secret.length < 16) {
     throw createError({
       statusCode: 503,
       statusMessage:
-        "Planning login is not configured (set PLANNING_SESSION_SECRET).",
+        "Planning login is not configured (set NUXT_PLANNING_SESSION_SECRET on Netlify).",
     });
   }
   if (!password) {
     throw createError({
       statusCode: 503,
       statusMessage:
-        "Planning login is not configured (set PLANNING_PASSWORD).",
+        "Planning login is not configured (set NUXT_PLANNING_PASSWORD on Netlify).",
     });
   }
 
@@ -38,11 +37,11 @@ export default defineEventHandler(async (event) => {
 
   const exp = Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 30;
   const token = signPlanningSession({ v: 1, exp }, secret);
-  const isProd = process.env.NODE_ENV === "production";
+  const secureCookie = getRequestURL(event).protocol === "https:";
 
   setCookie(event, COOKIE_NAME, token, {
     httpOnly: true,
-    secure: isProd,
+    secure: secureCookie,
     sameSite: "lax",
     path: "/",
     maxAge: 60 * 60 * 24 * 30,
