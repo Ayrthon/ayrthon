@@ -69,32 +69,15 @@
 
         <v-row>
           <v-col cols="12" lg="5">
-            <v-card class="surface-card pa-4 mb-4 mb-lg-6" rounded="xl" variant="flat">
-              <v-card-title class="card-title px-0 pt-0 pb-3">
-                Add job days
-              </v-card-title>
-              <v-text-field
-                v-model="formProject"
-                class="plan-field mb-3"
-                density="comfortable"
-                hide-details="auto"
-                label="Project name"
-                variant="outlined"
-              />
-              <p class="help-text mb-4">
-                Tap dates on the calendar to add or remove them from this entry (same year as selected above).
+            <v-card
+              v-if="draftDates.length === 0"
+              class="surface-card pa-4 mb-4 mb-lg-6"
+              rounded="xl"
+              variant="flat"
+            >
+              <p class="help-text mb-0">
+                Tap dates on the calendar (same year as above) to start a new job entry. Selected days appear on the calendar in amber.
               </p>
-              <v-btn
-                block
-                class="touch-btn"
-                color="primary"
-                rounded="xl"
-                size="large"
-                variant="flat"
-                @click="submitEntry"
-              >
-                Save entry
-              </v-btn>
             </v-card>
 
             <v-card class="surface-card pa-4" rounded="xl" variant="flat">
@@ -179,6 +162,59 @@
           </v-col>
         </v-row>
       </v-container>
+
+      <Teleport to="body">
+        <transition name="draft-bubble">
+          <div
+            v-if="draftDates.length"
+            class="draft-bubble-theme draft-bubble-anchor"
+          >
+            <div
+              class="draft-bubble pa-4 rounded-xl"
+              role="dialog"
+              aria-labelledby="draft-bubble-title"
+            >
+              <div class="draft-bubble__head">
+                <div class="draft-bubble__titles">
+                  <div id="draft-bubble-title" class="draft-bubble__title">
+                    New job
+                  </div>
+                  <span class="draft-bubble__meta">{{ draftDates.length }} day<span v-if="draftDates.length !== 1">s</span> selected</span>
+                </div>
+                <v-btn
+                  aria-label="Discard selection"
+                  class="draft-bubble__close"
+                  icon="mdi-close"
+                  size="small"
+                  variant="text"
+                  @click="clearDraft"
+                />
+              </div>
+              <v-text-field
+                v-model="formProject"
+                class="plan-field mb-3 mt-1"
+                density="comfortable"
+                hide-details="auto"
+                label="Project name"
+                variant="outlined"
+                @keyup.enter="submitEntry"
+              />
+              <div class="draft-bubble__actions">
+                <v-btn
+                  class="touch-btn draft-bubble__save"
+                  color="primary"
+                  rounded="xl"
+                  size="large"
+                  variant="flat"
+                  @click="submitEntry"
+                >
+                  Save entry
+                </v-btn>
+              </div>
+            </div>
+          </div>
+        </transition>
+      </Teleport>
 
       <v-snackbar
         v-model="snack"
@@ -286,6 +322,11 @@ function submitEntry() {
   snack.value = true;
 }
 
+function clearDraft() {
+  draftDates.value = [];
+  formProject.value = "";
+}
+
 type Cell =
   | { kind: "pad" }
   | { kind: "day"; date: string; dayNum: number };
@@ -364,7 +405,8 @@ onScopeDispose(() => {
 
 <style scoped>
 /* Light palette (default). Dark uses .planning-page--dark (synced with html.theme-dark). */
-.planning-page {
+.planning-page,
+.draft-bubble-theme {
   --plan-bg: #f1f5f9;
   --plan-text: #0f172a;
   --plan-muted: #475569;
@@ -386,7 +428,9 @@ onScopeDispose(() => {
   --plan-draft-hover-bg: rgba(251, 191, 36, 0.28);
   --plan-draft-hover-border: rgba(217, 119, 6, 0.85);
   --plan-shadow: 0 1px 3px rgba(15, 23, 42, 0.06);
+}
 
+.planning-page {
   min-height: 100vh;
   min-height: 100dvh;
   color: var(--plan-text);
@@ -397,7 +441,8 @@ onScopeDispose(() => {
   line-height: 1.55;
 }
 
-html.theme-dark .planning-page {
+html.theme-dark .planning-page,
+html.theme-dark .draft-bubble-theme {
   --plan-bg: #0b1220;
   --plan-text: #f1f5f9;
   --plan-muted: #94a3b8;
@@ -752,5 +797,97 @@ html.theme-dark .planning-page {
 
 .plan-snackbar :deep(.v-snackbar__content) {
   font-weight: 550;
+}
+
+/* Floating draft composer (teleported to body) */
+.draft-bubble-anchor {
+  position: fixed;
+  z-index: 10050;
+  right: max(12px, env(safe-area-inset-right));
+  bottom: max(12px, env(safe-area-inset-bottom));
+  left: max(12px, env(safe-area-inset-left));
+  pointer-events: none;
+  display: flex;
+  justify-content: flex-end;
+  align-items: flex-end;
+}
+
+.draft-bubble {
+  pointer-events: auto;
+  width: min(100%, 380px);
+  max-height: min(70vh, 420px);
+  overflow-y: auto;
+  color: var(--plan-text);
+  color-scheme: light;
+  background-color: var(--plan-surface);
+  border: 1px solid var(--plan-border);
+  box-shadow:
+    var(--plan-shadow),
+    0 14px 44px rgba(15, 23, 42, 0.15);
+}
+
+html.theme-dark .draft-bubble-theme .draft-bubble {
+  color-scheme: dark;
+  box-shadow:
+    var(--plan-shadow),
+    0 18px 52px rgba(0, 0, 0, 0.55);
+}
+
+.draft-bubble__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.draft-bubble__titles {
+  min-width: 0;
+}
+
+.draft-bubble__title {
+  font-size: 1.0625rem;
+  font-weight: 700;
+  color: var(--plan-text);
+  letter-spacing: -0.02em;
+}
+
+.draft-bubble__meta {
+  display: block;
+  margin-top: 4px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--plan-muted);
+}
+
+.draft-bubble__close {
+  flex-shrink: 0;
+  margin: -6px -8px 0 0;
+}
+
+.draft-bubble__save {
+  width: 100%;
+}
+
+.draft-bubble-enter-active,
+.draft-bubble-leave-active {
+  transition:
+    opacity 0.22s ease,
+    transform 0.24s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.draft-bubble-enter-from,
+.draft-bubble-leave-to {
+  opacity: 0;
+  transform: translateY(14px) scale(0.97);
+}
+
+@media (max-width: 520px) {
+  .draft-bubble-anchor {
+    justify-content: stretch;
+  }
+
+  .draft-bubble {
+    width: 100%;
+  }
 }
 </style>
