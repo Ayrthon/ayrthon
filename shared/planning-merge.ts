@@ -111,14 +111,118 @@ export function mergePlannerScalars(
   };
 }
 
+function normalizeJobEntry(e: JobEntry): JobEntry {
+  return {
+    id: e.id,
+    project: typeof e.project === "string" ? e.project : "",
+    dates: [...new Set(Array.isArray(e.dates) ? e.dates : [])].sort(),
+  };
+}
+
+function pickNewerJobStamp(a: string | undefined, b: string | undefined): string | undefined {
+  const ma = isoMs(a);
+  const mb = isoMs(b);
+  if (ma == null) return b;
+  if (mb == null) return a;
+  return ma >= mb ? a : b;
+}
+
 /**
- * Union-merge job rows, union-merge tombstones, then drop rows marked removed.
- * Any id listed in `incoming.entries` clears its tombstone (same id intentionally saved again).
+ * Merge rows using `jobEditedAt` so list-editor saves (date removals) replace union-merge snapshots.
+ * Falls back to union merge when neither side has a dialog stamp for that job id.
  */
+export function mergeJobEntriesWithEditTimes(
+  existing: StoredState | null,
+  incoming: StoredState,
+): { entries: JobEntry[]; jobEditedAt?: Record<string, string> } {
+  const R = existing?.entries ?? [];
+  const I = incoming.entries;
+  const rMap = new Map(R.map((e) => [e.id, e]));
+  const iMap = new Map(I.map((e) => [e.id, e]));
+  const idSet = new Set<string>();
+  for (const [id] of rMap) idSet.add(id);
+  for (const [id] of iMap) idSet.add(id);
+
+  const rTs = existing?.jobEditedAt ?? {};
+  const iTs = incoming.jobEditedAt ?? {};
+
+  const outJe: Record<string, string> = {};
+  const out: JobEntry[] = [];
+
+  for (const id of [...idSet].sort()) {
+    const re = rMap.get(id);
+    const ie = iMap.get(id);
+    const rt = rTs[id];
+    const it = iTs[id];
+
+    const pair = mergeJobPair(re, ie, rt, it);
+    if (!pair) continue;
+    out.push(pair.entry);
+    if (pair.stamp) outJe[id] = pair.stamp;
+  }
+
+  out.sort((a, b) => {
+    const pa = a.project.localeCompare(b.project);
+    if (pa !== 0) return pa;
+    return a.id.localeCompare(b.id);
+  });
+
+  return {
+    entries: out,
+    ...(Object.keys(outJe).length ? { jobEditedAt: outJe } : {}),
+  };
+}
+
+function mergeJobPair(
+  re: JobEntry | undefined,
+  ie: JobEntry | undefined,
+  rt: string | undefined,
+  it: string | undefined,
+): { entry: JobEntry; stamp?: string } | undefined {
+  if (!re && !ie) return undefined;
+  if (!re && ie) return { entry: normalizeJobEntry(ie), stamp: it };
+  if (re && !ie) return { entry: normalizeJobEntry(re), stamp: rt };
+
+  const im = isoMs(it);
+  const rm = isoMs(rt);
+
+  /** Incoming dialog edit wins — keeps date removals and project edits from the editor. */
+  if (im != null && (rm == null || im >= rm)) {
+    return { entry: normalizeJobEntry(ie!), stamp: it };
+  }
+
+  /** Remote dialog strictly newer — union dates so a stale tab without a stamp cannot wipe adds. */
+  if (rm != null && (im == null || rm > im)) {
+    const mergedDates = [...new Set([...re!.dates, ...ie!.dates])].sort();
+    const project =
+      typeof ie!.project === "string" && ie!.project.trim()
+        ? ie!.project.trim()
+        : re!.project;
+    return {
+      entry: { id: re!.id, project, dates: mergedDates },
+      stamp: rt,
+    };
+  }
+
+  const mergedDates = [...new Set([...re!.dates, ...ie!.dates])].sort();
+  const project =
+    typeof ie!.project === "string" && ie!.project.trim()
+      ? ie!.project.trim()
+      : re!.project;
+  return {
+    entry: { id: re!.id, project, dates: mergedDates },
+    stamp: pickNewerJobStamp(rt, it),
+  };
+}
+
 export function mergePlannerEntriesWithRemovals(
   existing: StoredState | null,
   incoming: StoredState,
-): { entries: JobEntry[]; removedJobIds?: string[] } {
+): {
+  entries: JobEntry[];
+  removedJobIds?: string[];
+  jobEditedAt?: Record<string, string>;
+} {
   const mergedRemoved = new Set<string>([
     ...(existing?.removedJobIds ?? []),
     ...(incoming.removedJobIds ?? []),
@@ -126,12 +230,27 @@ export function mergePlannerEntriesWithRemovals(
   for (const e of incoming.entries) {
     if (e?.id) mergedRemoved.delete(e.id);
   }
-  const unionEntries = mergeJobEntries(existing?.entries ?? [], incoming.entries);
-  const filtered = unionEntries.filter((e) => !mergedRemoved.has(e.id));
+  const merged = mergeJobEntriesWithEditTimes(existing, incoming);
+  const filtered = merged.entries.filter((e) => !mergedRemoved.has(e.id));
+
+  let jeOut = merged.jobEditedAt;
+  if (jeOut && mergedRemoved.size) {
+    jeOut = { ...jeOut };
+    for (const id of mergedRemoved) delete jeOut[id];
+  }
+  if (jeOut) {
+    const alive = new Set(filtered.map((e) => e.id));
+    jeOut = Object.fromEntries(
+      Object.entries(jeOut).filter(([k]) => alive.has(k)),
+    );
+    if (Object.keys(jeOut).length === 0) jeOut = undefined;
+  }
+
   const ids = [...mergedRemoved].sort();
   return {
     entries: filtered,
     ...(ids.length ? { removedJobIds: ids } : {}),
+    ...(jeOut ? { jobEditedAt: jeOut } : {}),
   };
 }
 
@@ -150,6 +269,7 @@ export function mergePlannerStateForSave(
     dayRate: scalars.dayRate,
     entries: rows.entries,
     ...(rows.removedJobIds ? { removedJobIds: rows.removedJobIds } : {}),
+    ...(rows.jobEditedAt ? { jobEditedAt: rows.jobEditedAt } : {}),
     ...(scalars.settingsEditedAt
       ? { settingsEditedAt: scalars.settingsEditedAt }
       : {}),

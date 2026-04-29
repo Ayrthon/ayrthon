@@ -48,8 +48,21 @@ export function parsePlanningStoredState(data: unknown): StoredState | null {
     )].sort();
     if (ids.length) removedJobIds = ids;
   }
+  const jeRaw = d.jobEditedAt ?? d["job_edited_at"];
+  let jobEditedAt: Record<string, string> | undefined;
+  if (jeRaw && typeof jeRaw === "object" && !Array.isArray(jeRaw)) {
+    const o: Record<string, string> = {};
+    for (const [k, v] of Object.entries(jeRaw as Record<string, unknown>)) {
+      if (typeof k !== "string" || !k.trim()) continue;
+      if (typeof v !== "string" || !Number.isFinite(Date.parse(v))) continue;
+      o[k.trim()] = v;
+    }
+    if (Object.keys(o).length) jobEditedAt = o;
+  }
+
   const base: StoredState = { comfortTarget, dayRate, entries };
   if (settingsEditedAt) base.settingsEditedAt = settingsEditedAt;
   if (removedJobIds) base.removedJobIds = removedJobIds;
+  if (jobEditedAt) base.jobEditedAt = jobEditedAt;
   return base;
 }

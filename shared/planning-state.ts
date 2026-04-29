@@ -19,6 +19,11 @@ export interface StoredState {
    * so removes survive concurrent edits (otherwise union-only merge resurrects deleted rows).
    */
   removedJobIds?: string[];
+  /**
+   * Per-job ISO8601 stamps set when the user saves the job row editor (project + dates).
+   * Merge uses these so date removals replace the union snapshot instead of resurrecting old days.
+   */
+  jobEditedAt?: Record<string, string>;
 }
 
 /** Normalize API / DB payloads (strings, snake_case keys). */

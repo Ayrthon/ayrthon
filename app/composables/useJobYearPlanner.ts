@@ -61,6 +61,8 @@ export function useJobYearPlanner(syncOverride?: PlanningSyncRef) {
    * a stamp would leave stale-tab autosaves from overwriting comfort/day rate by mistake.
    */
   const settingsEditedAt = ref<string | undefined>(undefined);
+  /** Per-job stamps when the job row editor saves — required so merged PUTs keep date removals. */
+  const jobEditedAt = ref<Record<string, string>>({});
   /** True after remote state applied (or failed attempt while sync enabled). */
   const hydrated = ref(false);
 
@@ -105,6 +107,18 @@ export function useJobYearPlanner(syncOverride?: PlanningSyncRef) {
         settingsEditedAt.value = seRaw;
       } else {
         settingsEditedAt.value = undefined;
+      }
+      const jeRaw = raw.jobEditedAt ?? raw["job_edited_at"];
+      if (jeRaw && typeof jeRaw === "object" && !Array.isArray(jeRaw)) {
+        const o: Record<string, string> = {};
+        for (const [k, v] of Object.entries(jeRaw as Record<string, unknown>)) {
+          if (typeof k !== "string" || !k.trim()) continue;
+          if (typeof v !== "string" || !Number.isFinite(Date.parse(v))) continue;
+          o[k.trim()] = v;
+        }
+        jobEditedAt.value = o;
+      } else {
+        jobEditedAt.value = {};
       }
     } catch (e: unknown) {
       const code = getFetchStatus(e);
@@ -154,6 +168,9 @@ export function useJobYearPlanner(syncOverride?: PlanningSyncRef) {
       ...(settingsEditedAt.value
         ? { settingsEditedAt: settingsEditedAt.value }
         : {}),
+      ...(Object.keys(jobEditedAt.value).length
+        ? { jobEditedAt: { ...jobEditedAt.value } }
+        : {}),
     };
     try {
       await $fetch("/api/planning/data", {
@@ -185,6 +202,7 @@ export function useJobYearPlanner(syncOverride?: PlanningSyncRef) {
           entries.value = [];
           removedJobIds.value = [];
           settingsEditedAt.value = undefined;
+          jobEditedAt.value = {};
         }
         hydrated.value = false;
         return;
@@ -196,7 +214,7 @@ export function useJobYearPlanner(syncOverride?: PlanningSyncRef) {
   );
 
   watch(
-    [comfortTarget, dayRate, entries, removedJobIds, settingsEditedAt],
+    [comfortTarget, dayRate, entries, removedJobIds, settingsEditedAt, jobEditedAt],
     () => {
       if (!hydrated.value || !syncEnabled.value || applyingRemote) return;
       scheduleSave();
@@ -330,6 +348,10 @@ export function useJobYearPlanner(syncOverride?: PlanningSyncRef) {
     const next = new Set(removedJobIds.value);
     next.add(id);
     removedJobIds.value = [...next].sort();
+    if (id in jobEditedAt.value) {
+      const { [id]: _, ...rest } = jobEditedAt.value;
+      jobEditedAt.value = rest;
+    }
   }
 
   /** Replace project name and/or dates for an existing job (list editor). */
@@ -342,6 +364,10 @@ export function useJobYearPlanner(syncOverride?: PlanningSyncRef) {
     entries.value = entries.value.map((e, i) =>
       i === idx ? { ...e, project: clean, dates: normalized } : e,
     );
+    jobEditedAt.value = {
+      ...jobEditedAt.value,
+      [id]: new Date().toISOString(),
+    };
     return true;
   }
 
