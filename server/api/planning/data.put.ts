@@ -18,6 +18,6 @@ export default defineEventHandler(async (event) => {
       statusMessage: "Invalid planning payload",
     });
   }
-  await savePlanningState(parsed);
+  await savePlanningState(event, parsed);
   return { ok: true };
 });

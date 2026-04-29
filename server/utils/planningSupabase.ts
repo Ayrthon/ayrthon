@@ -1,5 +1,6 @@
 import process from "node:process";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import type { H3Event } from "h3";
 import type { StoredState } from "~~/shared/planning-state";
 import { parsePlanningStoredState } from "./planningParse";
 
@@ -14,33 +15,50 @@ function envFirst(keys: readonly string[]): string {
   return "";
 }
 
-let client: SupabaseClient | null | undefined;
+/** Credentials resolved per request: `runtimeConfig` (NUXT_* from Netlify) then raw env. */
+function resolveSupabaseCredentials(event: H3Event): { url: string; key: string } | null {
+  const config = useRuntimeConfig(event);
+  let url = String(config.supabaseUrl ?? "").trim();
+  let key = String(config.supabaseServiceRoleKey ?? "").trim();
 
-function getClient(): SupabaseClient | null {
-  if (client === undefined) {
-    const url = envFirst(["SUPABASE_URL", "NUXT_SUPABASE_URL"]);
-    const key = envFirst([
+  if (!url) url = envFirst(["SUPABASE_URL", "NUXT_SUPABASE_URL"]);
+  if (!key) {
+    key = envFirst([
       "SUPABASE_SERVICE_ROLE_KEY",
       "NUXT_SUPABASE_SERVICE_ROLE_KEY",
     ]);
-    if (!url || !key) {
-      client = null;
-    } else {
-      client = createClient(url, key, {
-        auth: { persistSession: false, autoRefreshToken: false },
-      });
-    }
+  }
+
+  if (!url || !key) return null;
+  return { url, key };
+}
+
+const clientCache = new Map<string, SupabaseClient>();
+
+function getClient(event: H3Event): SupabaseClient | null {
+  const creds = resolveSupabaseCredentials(event);
+  if (!creds) return null;
+
+  const cacheKey = `${creds.url}\0${creds.key}`;
+  let client = clientCache.get(cacheKey);
+  if (!client) {
+    client = createClient(creds.url, creds.key, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
+    clientCache.set(cacheKey, client);
   }
   return client;
 }
 
-/** True when URL + service role are set (server-side only; never expose service key to the browser). */
-export function isSupabaseConfigured(): boolean {
-  return getClient() !== null;
+/** True when URL + service role resolve for this request (server-only). */
+export function isSupabaseConfigured(event: H3Event): boolean {
+  return resolveSupabaseCredentials(event) !== null;
 }
 
-export async function loadPlanningFromSupabase(): Promise<StoredState | null> {
-  const sb = getClient();
+export async function loadPlanningFromSupabase(
+  event: H3Event,
+): Promise<StoredState | null> {
+  const sb = getClient(event);
   if (!sb) return null;
 
   const { data, error } = await sb
@@ -58,8 +76,11 @@ export async function loadPlanningFromSupabase(): Promise<StoredState | null> {
   return parsePlanningStoredState(data.payload);
 }
 
-export async function savePlanningToSupabase(state: StoredState): Promise<void> {
-  const sb = getClient();
+export async function savePlanningToSupabase(
+  event: H3Event,
+  state: StoredState,
+): Promise<void> {
+  const sb = getClient(event);
   if (!sb) throw new Error("Supabase client unavailable");
 
   const { error } = await sb.from("planning_state").upsert(

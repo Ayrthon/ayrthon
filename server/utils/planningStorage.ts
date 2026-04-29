@@ -1,6 +1,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import process from "node:process";
+import type { H3Event } from "h3";
 import type { StoredState } from "~~/shared/planning-state";
 import { parsePlanningStoredState } from "./planningParse";
 import {
@@ -36,9 +37,9 @@ function useFilesystemBackend(): boolean {
   return true;
 }
 
-export async function loadPlanningState(): Promise<StoredState | null> {
-  if (isSupabaseConfigured()) {
-    return await loadPlanningFromSupabase();
+export async function loadPlanningState(event: H3Event): Promise<StoredState | null> {
+  if (isSupabaseConfigured(event)) {
+    return await loadPlanningFromSupabase(event);
   }
 
   if (useFilesystemBackend()) {
@@ -74,9 +75,12 @@ export async function loadPlanningState(): Promise<StoredState | null> {
   }
 }
 
-export async function savePlanningState(state: StoredState): Promise<void> {
-  if (isSupabaseConfigured()) {
-    await savePlanningToSupabase(state);
+export async function savePlanningState(
+  event: H3Event,
+  state: StoredState,
+): Promise<void> {
+  if (isSupabaseConfigured(event)) {
+    await savePlanningToSupabase(event, state);
     return;
   }
 

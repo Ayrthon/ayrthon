@@ -63,5 +63,9 @@ export default defineNuxtConfig({
   runtimeConfig: {
     planningPassword: "",
     planningSessionSecret: "",
+    /** Set via `NUXT_SUPABASE_URL` / env — merged at runtime on Netlify Functions. */
+    supabaseUrl: "",
+    /** Set via `NUXT_SUPABASE_SERVICE_ROLE_KEY` — never expose to client. */
+    supabaseServiceRoleKey: "",
   },
 });

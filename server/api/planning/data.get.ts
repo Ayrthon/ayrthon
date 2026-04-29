@@ -12,6 +12,6 @@ export default defineEventHandler(async (event) => {
   const { sessionSecret: secret } = getPlanningSecrets(event);
   requirePlanningAuth(event, secret);
 
-  const state = await loadPlanningState();
+  const state = await loadPlanningState(event);
   return state ?? emptyState();
 });
