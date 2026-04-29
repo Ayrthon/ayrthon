@@ -387,10 +387,9 @@ useHead({
 });
 
 const auth = usePlanningAuth();
-provide(
-  "planningSync",
-  computed(() => auth.ready && auth.authenticated),
-);
+/** Same-component inject cannot see `provide`; pass explicitly into the composable. */
+const planningSyncEnabled = computed(() => auth.ready && auth.authenticated);
+provide("planningSync", planningSyncEnabled);
 
 const loginPassword = ref("");
 
@@ -413,7 +412,7 @@ const {
   setComfortTarget,
   setDayRate,
   flushSave,
-} = useJobYearPlanner();
+} = useJobYearPlanner(planningSyncEnabled);
 
 async function signOut() {
   await flushSave();

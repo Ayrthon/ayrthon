@@ -1,6 +1,10 @@
+import type { ComputedRef, Ref } from "vue";
 import type { JobEntry, StoredState } from "~~/shared/planning-state";
 
 export type { JobEntry, StoredState } from "~~/shared/planning-state";
+
+/** Must be passed from `planning.vue`: Vue inject does not see `provide()` from the same component. */
+export type PlanningSyncRef = Ref<boolean> | ComputedRef<boolean>;
 
 function padDate(y: number, m: number, d: number): string {
   return `${y}-${String(m + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
@@ -23,11 +27,13 @@ const fetchPlannerOpts = {
   cache: "no-store" as RequestCache,
 };
 
-export function useJobYearPlanner() {
-  const syncEnabled = inject(
-    "planningSync",
-    computed(() => false),
-  );
+export function useJobYearPlanner(syncOverride?: PlanningSyncRef) {
+  const syncEnabled =
+    syncOverride
+    ?? inject<PlanningSyncRef>(
+      "planningSync",
+      computed(() => false),
+    );
 
   const year = ref(new Date().getFullYear());
   const comfortTarget = ref(48);
@@ -66,9 +72,7 @@ export function useJobYearPlanner() {
       }
     } catch (e: unknown) {
       const code = getFetchStatus(e);
-      if (import.meta.dev) {
-        console.warn("[planning] GET /api/planning/data failed:", code ?? e);
-      }
+      console.error("[planning] GET /api/planning/data failed:", code ?? e);
       /** Keep default refs; do not wipe — empty JSON was often a stale CDN cache, not "no data". */
     } finally {
       applyingRemote = false;
