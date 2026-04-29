@@ -10,9 +10,22 @@ function planningDataFile(): string {
   return resolve(root, ".data/planning-state.json");
 }
 
-/** Netlify Functions set NETLIFY=true; local `nuxt dev` does not — use a JSON file. */
+/** Prefer Netlify Blobs on deployed Functions; use `.data/` for local Node only. */
 function useFilesystemBackend(): boolean {
-  return process.env.NETLIFY !== "true";
+  if (process.env.PLANNING_STORAGE_FS === "1") return true;
+  if (process.env.PLANNING_STORAGE_FS === "0") return false;
+
+  const onNetlifyCompute =
+    typeof process.env.AWS_LAMBDA_FUNCTION_NAME === "string"
+    || (typeof process.env.AWS_EXECUTION_ENV === "string"
+      && process.env.AWS_EXECUTION_ENV.startsWith("AWS_Lambda"))
+    || process.env.NETLIFY === "true"
+    || process.env.NETLIFY_DEV === "true";
+
+  if (onNetlifyCompute) return false;
+
+  // Local `nuxt dev`, `nuxt preview`, tests — no Lambda / Netlify Blobs context
+  return true;
 }
 
 export async function loadPlanningState(): Promise<StoredState | null> {
