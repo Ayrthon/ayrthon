@@ -2,13 +2,9 @@
   <section class="landing">
     <div class="landing__overlay">
       <nav class="landing__nav">
-        <NuxtLink class="landing__nav-link" to="/planning">
-          Planning
-        </NuxtLink>
         <NuxtLink to="/socials" class="landing__nav-link">
           Socials
         </NuxtLink>
-        <SiteThemeToggle />
       </nav>
 
       <main class="landing__content">

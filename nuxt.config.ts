@@ -46,4 +46,13 @@ export default defineNuxtConfig({
   vite: {
     plugins: [vuetify()],
   },
+
+  nitro: {
+    preset: "netlify",
+  },
+
+  runtimeConfig: {
+    planningPassword: "",
+    planningSessionSecret: "",
+  },
 });

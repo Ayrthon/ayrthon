@@ -4,10 +4,72 @@
       <NuxtLink class="planning-nav__link" to="/">
         ← Home
       </NuxtLink>
-      <SiteThemeToggle />
+      <div class="planning-nav__aside">
+        <v-btn
+          v-if="auth.ready && auth.authenticated"
+          class="planning-nav__signout"
+          rounded="xl"
+          variant="text"
+          @click="auth.logout"
+        >
+          Sign out
+        </v-btn>
+        <SiteThemeToggle />
+      </div>
     </nav>
 
     <ClientOnly>
+      <template v-if="!auth.ready">
+        <v-container class="planning-wrap planning-wrap--loading" fluid>
+          <p class="loading-text mb-0">
+            Checking access…
+          </p>
+        </v-container>
+      </template>
+
+      <template v-else-if="!auth.authenticated">
+        <v-container class="planning-wrap" fluid>
+          <header class="planning-head">
+            <p class="planning-eyebrow">
+              Personal
+            </p>
+            <h1 class="planning-title">
+              Planning
+            </h1>
+            <p class="planning-sub mb-6">
+              Sign in to load and edit your planner. Data is stored on the server.
+            </p>
+          </header>
+          <v-card class="surface-card pa-6" rounded="xl" style="max-width: 440px;" variant="flat">
+            <v-card-title class="px-0 pt-0 pb-3 text-subtitle-1 font-weight-medium">
+              Password
+            </v-card-title>
+            <v-card-text class="px-0 pt-0">
+              <v-text-field
+                v-model="loginPassword"
+                autocomplete="current-password"
+                class="plan-field"
+                density="comfortable"
+                hide-details="auto"
+                label="Password"
+                type="password"
+                variant="outlined"
+                @keyup.enter="submitPlanningLogin"
+              />
+              <p v-if="auth.loginError" class="mb-0 mt-2 text-caption text-error">
+                {{ auth.loginError }}
+              </p>
+            </v-card-text>
+            <v-card-actions class="px-0 pb-0 pt-2">
+              <v-btn color="primary" rounded="xl" size="large" variant="flat" @click="submitPlanningLogin">
+                Continue
+              </v-btn>
+            </v-card-actions>
+          </v-card>
+        </v-container>
+      </template>
+
+      <template v-else>
       <v-container class="planning-wrap" fluid>
         <header class="planning-head">
           <p class="planning-eyebrow">
@@ -29,7 +91,7 @@
             />
           </div>
           <p class="planning-sub">
-            Track work days against your yearly comfort target. Data stays in this browser (local storage).
+            Track work days against your yearly comfort target. Changes sync to the server while you are signed in.
           </p>
         </header>
 
@@ -309,6 +371,8 @@
         {{ snackText }}
       </v-snackbar>
 
+      </template>
+
       <template #fallback>
         <v-container class="planning-wrap planning-wrap--loading">
           <p class="loading-text">
@@ -327,6 +391,21 @@ useHead({
   title: "Planning · Ayrthon",
   meta: [{ name: "robots", content: "noindex, nofollow" }],
 });
+
+const auth = usePlanningAuth();
+provide(
+  "planningSync",
+  computed(() => auth.ready && auth.authenticated),
+);
+
+const loginPassword = ref("");
+
+async function submitPlanningLogin() {
+  await auth.login(loginPassword.value);
+  if (auth.authenticated) {
+    loginPassword.value = "";
+  }
+}
 
 const {
   year,
@@ -1160,6 +1239,12 @@ html.theme-dark .draft-bubble-theme {
 .planning-nav__link:hover,
 .planning-nav__link:focus-visible {
   text-decoration: underline;
+}
+
+.planning-nav__aside {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .planning-wrap {

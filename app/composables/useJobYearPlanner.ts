@@ -1,17 +1,6 @@
-export interface JobEntry {
-  id: string;
-  project: string;
-  dates: string[];
-}
+import type { JobEntry, StoredState } from "~~/shared/planning-state";
 
-const STORAGE_KEY = "ayrthon-job-planner-v1";
-
-export interface StoredState {
-  comfortTarget: number;
-  /** Revenue per logged day (EUR; estimates use EUR). */
-  dayRate?: number;
-  entries: JobEntry[];
-}
+export type { JobEntry, StoredState } from "~~/shared/planning-state";
 
 function padDate(y: number, m: number, d: number): string {
   return `${y}-${String(m + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
@@ -29,21 +18,25 @@ export function toIsoDateString(input: Date | string): string {
 }
 
 export function useJobYearPlanner() {
+  const syncEnabled = inject(
+    "planningSync",
+    computed(() => false),
+  );
+
   const year = ref(new Date().getFullYear());
   const comfortTarget = ref(48);
   const dayRate = ref(0);
   const entries = ref<JobEntry[]>([]);
+  /** True after remote state applied (or failed attempt while sync enabled). */
   const hydrated = ref(false);
 
-  function load() {
-    if (typeof window === "undefined") return;
+  let saveTimer: ReturnType<typeof setTimeout> | null = null;
+
+  async function pullLoad() {
     try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (!raw) {
-        hydrated.value = true;
-        return;
-      }
-      const data = JSON.parse(raw) as StoredState;
+      const data = await $fetch<StoredState>("/api/planning/data", {
+        credentials: "include",
+      });
       if (typeof data.comfortTarget === "number" && data.comfortTarget > 0) {
         comfortTarget.value = data.comfortTarget;
       }
@@ -57,36 +50,69 @@ export function useJobYearPlanner() {
       if (Array.isArray(data.entries)) {
         entries.value = data.entries.filter(
           (e) =>
-            e &&
-            typeof e.id === "string" &&
-            typeof e.project === "string" &&
-            Array.isArray(e.dates),
+            e
+            && typeof e.id === "string"
+            && typeof e.project === "string"
+            && Array.isArray(e.dates),
         );
       }
     } catch {
       entries.value = [];
+    } finally {
+      hydrated.value = true;
     }
-    hydrated.value = true;
   }
 
-  function save() {
-    if (typeof window === "undefined") return;
+  async function flushSave() {
+    if (!syncEnabled.value || !hydrated.value) return;
     const payload: StoredState = {
       comfortTarget: comfortTarget.value,
       dayRate: dayRate.value,
       entries: entries.value,
     };
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+    try {
+      await $fetch("/api/planning/data", {
+        method: "PUT",
+        credentials: "include",
+        body: payload,
+      });
+    } catch {
+      /* offline / expired session — silent */
+    }
   }
 
-  onMounted(() => {
-    load();
-  });
+  function scheduleSave() {
+    if (!syncEnabled.value || typeof window === "undefined") return;
+    if (saveTimer) clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => void flushSave(), 650);
+  }
 
-  watch([comfortTarget, dayRate, entries], () => {
-    if (!hydrated.value) return;
-    save();
-  }, { deep: true });
+  watch(
+    syncEnabled,
+    async (v, prev) => {
+      if (!v) {
+        if (prev === true) {
+          comfortTarget.value = 48;
+          dayRate.value = 0;
+          entries.value = [];
+        }
+        hydrated.value = false;
+        return;
+      }
+      hydrated.value = false;
+      await pullLoad();
+    },
+    { immediate: true },
+  );
+
+  watch(
+    [comfortTarget, dayRate, entries],
+    () => {
+      if (!hydrated.value || !syncEnabled.value) return;
+      scheduleSave();
+    },
+    { deep: true },
+  );
 
   const uniqueDaysInSelectedYear = computed(() => {
     const y = year.value;
@@ -194,7 +220,8 @@ export function useJobYearPlanner() {
     removeEntry,
     setComfortTarget,
     setDayRate,
-    save,
+    /** Manual flush (e.g. before unload); normally debounced via watch. */
+    flushSave,
     toIsoDateString,
   };
 }
