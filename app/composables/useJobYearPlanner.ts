@@ -26,10 +26,20 @@ export function toIsoDateString(input: Date | string): string {
 }
 
 /** Avoid CDN/browser caching stale planner JSON on hard refresh (Netlify edge). */
-const fetchPlannerOpts = {
-  credentials: "include" as const,
-  cache: "no-store" as RequestCache,
-};
+function fetchPlannerOpts(): {
+  credentials: "include";
+  cache: RequestCache;
+  headers: Record<string, string>;
+} {
+  return {
+    credentials: "include",
+    cache: "no-store",
+    headers: {
+      "Cache-Control": "no-cache",
+      Pragma: "no-cache",
+    },
+  };
+}
 
 export function useJobYearPlanner(syncOverride?: PlanningSyncRef) {
   const syncEnabled =
@@ -84,17 +94,25 @@ export function useJobYearPlanner(syncOverride?: PlanningSyncRef) {
     }
   }
 
+  /** Unique URL — some proxies ignore `Cache-Control` on API routes; bust GET caches. */
+  function planningDataUrl(): string {
+    const q = new URLSearchParams({ _: String(Date.now()) });
+    return `/api/planning/data?${q.toString()}`;
+  }
+
   /** One retry on cold starts / transient Netlify errors so refresh does not show an empty planner. */
   async function fetchPlanningStateOnce(): Promise<StoredState> {
+    const url = planningDataUrl();
+    const opts = fetchPlannerOpts();
     try {
-      return await $fetch<StoredState>("/api/planning/data", fetchPlannerOpts);
+      return await $fetch<StoredState>(url, opts);
     } catch (first: unknown) {
       const code = getFetchStatus(first);
       const transient =
         code === undefined || code === 502 || code === 503 || code === 504;
       if (!transient) throw first;
       await new Promise((r) => setTimeout(r, 400));
-      return await $fetch<StoredState>("/api/planning/data", fetchPlannerOpts);
+      return await $fetch<StoredState>(planningDataUrl(), opts);
     }
   }
 
@@ -158,16 +176,44 @@ export function useJobYearPlanner(syncOverride?: PlanningSyncRef) {
 
   if (import.meta.client) {
     const hotFlush = () => void flushSave({ keepalive: true });
+    let visibleRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+    /** Avoid duplicate GET when page starts visible (initial pullLoad runs via watch). */
+    let sawHiddenSinceLoad = false;
+    const refetchWhenVisible = () => {
+      if (document.visibilityState !== "visible") return;
+      if (!syncEnabled.value) return;
+      if (visibleRefreshTimer) clearTimeout(visibleRefreshTimer);
+      visibleRefreshTimer = setTimeout(() => {
+        visibleRefreshTimer = null;
+        void pullLoad();
+      }, 120);
+    };
     const onVis = () => {
-      if (document.visibilityState === "hidden") hotFlush();
+      const vs = document.visibilityState;
+      if (vs === "hidden") {
+        sawHiddenSinceLoad = true;
+        hotFlush();
+        return;
+      }
+      if (vs === "visible" && sawHiddenSinceLoad) {
+        sawHiddenSinceLoad = false;
+        refetchWhenVisible();
+      }
+    };
+    const onPageShow = (e: PageTransitionEvent) => {
+      /** BFCache restore can resurrect stale Vue state without remounting — force reload from server. */
+      if (e.persisted) void pullLoad();
     };
     window.addEventListener("pagehide", hotFlush);
     window.addEventListener("beforeunload", hotFlush);
+    window.addEventListener("pageshow", onPageShow);
     document.addEventListener("visibilitychange", onVis);
     onScopeDispose(() => {
       window.removeEventListener("pagehide", hotFlush);
       window.removeEventListener("beforeunload", hotFlush);
+      window.removeEventListener("pageshow", onPageShow);
       document.removeEventListener("visibilitychange", onVis);
+      if (visibleRefreshTimer) clearTimeout(visibleRefreshTimer);
     });
   }
 

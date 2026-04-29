@@ -10,4 +10,6 @@
   for = "/api/planning/*"
   [headers.values]
     Cache-Control = "private, no-store, must-revalidate, max-age=0"
+    CDN-Cache-Control = "no-store"
+    Surrogate-Control = "no-store"
     Vary = "Cookie"

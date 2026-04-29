@@ -55,6 +55,8 @@ export default defineNuxtConfig({
     "/api/planning/**": {
       headers: {
         "cache-control": "private, no-store, must-revalidate, max-age=0",
+        "cdn-cache-control": "no-store",
+        "surrogate-control": "no-store",
         vary: "Cookie",
       },
     },

@@ -6,5 +6,7 @@ export default defineEventHandler((event) => {
   if (!path.startsWith("/api/planning")) return;
 
   setHeader(event, "Cache-Control", "private, no-store, must-revalidate, max-age=0");
+  setHeader(event, "CDN-Cache-Control", "no-store");
+  setHeader(event, "Surrogate-Control", "no-store");
   setHeader(event, "Vary", "Cookie");
 });
