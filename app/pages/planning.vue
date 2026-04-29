@@ -36,22 +36,16 @@
             <h1 class="planning-title">
               Planning
             </h1>
-            <p class="planning-sub mb-6">
-              Sign in to load and edit your planner. Data is stored on the server.
-            </p>
           </header>
           <v-card class="surface-card pa-6" rounded="xl" style="max-width: 440px;" variant="flat">
-            <v-card-title class="px-0 pt-0 pb-3 text-subtitle-1 font-weight-medium">
-              Password
-            </v-card-title>
             <v-card-text class="px-0 pt-0">
               <v-text-field
                 v-model="loginPassword"
+                aria-label="Password"
                 autocomplete="current-password"
                 class="plan-field"
                 density="comfortable"
                 hide-details="auto"
-                label="Password"
                 type="password"
                 variant="outlined"
                 @keyup.enter="submitPlanningLogin"
