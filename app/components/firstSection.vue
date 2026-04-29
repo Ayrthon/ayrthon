@@ -8,6 +8,7 @@
         <NuxtLink to="/socials" class="landing__nav-link">
           Socials
         </NuxtLink>
+        <SiteThemeToggle />
       </nav>
 
       <main class="landing__content">

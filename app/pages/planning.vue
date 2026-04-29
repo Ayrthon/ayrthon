@@ -4,6 +4,7 @@
       <NuxtLink class="planning-nav__link" to="/">
         ← Home
       </NuxtLink>
+      <SiteThemeToggle />
     </nav>
 
     <ClientOnly>
@@ -21,7 +22,7 @@
         </header>
 
         <v-row class="controls-row" dense>
-          <v-col cols="12" sm="6" lg="4">
+          <v-col cols="6" lg="4">
             <v-select
               v-model="yearModel"
               :items="yearItems"
@@ -32,13 +33,13 @@
               variant="outlined"
             />
           </v-col>
-          <v-col cols="12" sm="6" lg="4">
+          <v-col cols="6" lg="4">
             <v-text-field
               :model-value="comfortTarget"
               class="plan-field"
               density="comfortable"
               hide-details
-              label="Comfort target (days / year)"
+              label="Comfort (days / yr)"
               min="1"
               step="1"
               type="number"
@@ -80,51 +81,9 @@
                 label="Project name"
                 variant="outlined"
               />
-              <p class="help-text mb-3">
-                Add one or more dates (picker + Add date, or paste lines below).
+              <p class="help-text mb-4">
+                Tap dates on the calendar to add or remove them from this entry (same year as selected above).
               </p>
-              <div class="date-add-row mb-3">
-                <input
-                  v-model="pendingDateInput"
-                  class="native-date"
-                  type="date"
-                >
-                <v-btn
-                  class="touch-btn"
-                  color="primary"
-                  rounded="xl"
-                  size="large"
-                  variant="flat"
-                  @click="addPendingDate"
-                >
-                  Add date
-                </v-btn>
-              </div>
-              <div v-if="draftDates.length" class="date-chips mb-4">
-                <v-chip
-                  v-for="d in draftDates"
-                  :key="d"
-                  class="ma-1"
-                  closable
-                  color="primary"
-                  variant="tonal"
-                  @click:close="removeDraftDate(d)"
-                >
-                  {{ d }}
-                </v-chip>
-              </div>
-              <v-textarea
-                v-model="bulkDatesText"
-                auto-grow
-                class="plan-field mb-4"
-                density="comfortable"
-                hint="Optional: one YYYY-MM-DD per line (blur merges into list)"
-                label="Paste dates"
-                persistent-hint
-                rows="3"
-                variant="outlined"
-                @blur="mergeBulkDates"
-              />
               <v-btn
                 block
                 class="touch-btn"
@@ -140,13 +99,17 @@
 
             <v-card class="surface-card pa-4" rounded="xl" variant="flat">
               <v-card-title class="card-title px-0 pt-0 pb-3">
-                Entries ({{ entries.length }})
+                Jobs ({{ entries.length }})
               </v-card-title>
               <v-list v-if="entriesSorted.length" bg-color="transparent" class="entry-list" density="comfortable">
                 <v-list-item
                   v-for="e in entriesSorted"
+                  :id="'job-row-' + e.id"
                   :key="e.id"
-                  class="entry-item px-2 py-2 rounded-lg"
+                  :class="[
+                    'entry-item px-2 py-2 rounded-lg',
+                    { 'entry-item--highlight': highlightedJobIds.includes(e.id) },
+                  ]"
                   rounded="lg"
                 >
                   <v-list-item-title class="entry-title">
@@ -168,13 +131,13 @@
                 </v-list-item>
               </v-list>
               <p v-else class="empty-text mb-0">
-                No entries yet.
+                No jobs yet.
               </p>
             </v-card>
           </v-col>
 
           <v-col cols="12" lg="7">
-            <v-card class="surface-card pa-4 mb-4 mb-lg-6" rounded="xl" variant="flat">
+            <v-card class="surface-card pa-4" rounded="xl" variant="flat">
               <v-card-title class="card-title px-0 pt-0 pb-4">
                 Calendar · {{ year }}
               </v-card-title>
@@ -188,7 +151,7 @@
                     {{ monthTitle(year, m - 1) }}
                   </div>
                   <div class="weekday-row">
-                    <span v-for="w in weekdayLetters" :key="w">{{ w }}</span>
+                    <span v-for="(w, wi) in weekdayLetters" :key="wi">{{ w }}</span>
                   </div>
                   <div class="day-grid">
                     <button
@@ -198,6 +161,8 @@
                       :class="{
                         'day-cell--pad': cell.kind === 'pad',
                         'day-cell--work': cell.kind === 'day' && cell.date && datesByDay.has(cell.date),
+                        'day-cell--draft':
+                          cell.kind === 'day' && cell.date && draftDates.includes(cell.date),
                       }"
                       :disabled="cell.kind !== 'day'"
                       type="button"
@@ -210,62 +175,6 @@
                   </div>
                 </div>
               </div>
-            </v-card>
-
-            <v-card class="surface-card pa-4" rounded="xl" variant="flat">
-              <v-card-title class="card-title px-0 pt-0 pb-3">
-                Planned jobs by month · {{ year }}
-              </v-card-title>
-              <v-expansion-panels
-                v-if="monthsWithRows.length"
-                class="month-panels"
-                variant="accordion"
-              >
-                <v-expansion-panel
-                  v-for="block in monthsWithRows"
-                  :key="block.monthIndex"
-                >
-                  <v-expansion-panel-title class="panel-title">
-                    <span>{{ block.label }}</span>
-                    <span class="panel-meta">
-                      ({{ block.rows.length }})
-                    </span>
-                  </v-expansion-panel-title>
-                  <v-expansion-panel-text class="panel-body">
-                    <div class="table-scroll">
-                      <v-table class="month-table" density="comfortable" hover>
-                        <thead>
-                          <tr>
-                            <th scope="col">
-                              Project
-                            </th>
-                            <th scope="col">
-                              Dates
-                            </th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          <tr v-for="row in block.rows" :key="row.project">
-                            <td>{{ row.project }}</td>
-                            <td>
-                              <span
-                                v-for="d in row.dates"
-                                :key="d"
-                                class="date-pill"
-                              >
-                                {{ formatShortDate(d) }}
-                              </span>
-                            </td>
-                          </tr>
-                        </tbody>
-                      </v-table>
-                    </div>
-                  </v-expansion-panel-text>
-                </v-expansion-panel>
-              </v-expansion-panels>
-              <p v-else class="empty-text mb-0">
-                Nothing scheduled in {{ year }} yet — add dates above.
-              </p>
             </v-card>
           </v-col>
         </v-row>
@@ -304,11 +213,9 @@ const {
   entries,
   uniqueDaysInSelectedYear,
   datesByDay,
-  monthlyPlan,
   addEntry,
   removeEntry,
   setComfortTarget,
-  toIsoDateString,
 } = useJobYearPlanner();
 
 const currentYear = new Date().getFullYear();
@@ -321,14 +228,10 @@ const yearModel = computed({
   },
 });
 
-function isoToday(): string {
-  return toIsoDateString(new Date());
-}
-
 const formProject = ref("");
 const draftDates = ref<string[]>([]);
-const pendingDateInput = ref(isoToday());
-const bulkDatesText = ref("");
+const highlightedJobIds = ref<string[]>([]);
+let highlightClearTimer: ReturnType<typeof setTimeout> | undefined;
 const snack = ref(false);
 const snackText = ref("");
 
@@ -349,12 +252,8 @@ const entriesSorted = computed(() =>
   [...entries.value].sort((a, b) => {
     const am = minDate(a.dates);
     const bm = minDate(b.dates);
-    return (bm ?? "").localeCompare(am ?? "");
+    return (am ?? "").localeCompare(bm ?? "");
   }),
-);
-
-const monthsWithRows = computed(() =>
-  monthlyPlan.value.filter((m) => m.rows.length > 0),
 );
 
 function minDate(dates: string[]): string | null {
@@ -373,35 +272,6 @@ function summarizeDates(dates: string[]): string {
   return `${sorted.slice(0, 3).join(", ")} +${sorted.length - 3} more`;
 }
 
-function addPendingDate() {
-  const s = pendingDateInput.value?.trim();
-  if (!s || !/^\d{4}-\d{2}-\d{2}$/.test(s)) return;
-  if (!draftDates.value.includes(s))
-    draftDates.value = [...draftDates.value, s].sort();
-}
-
-function removeDraftDate(d: string) {
-  draftDates.value = draftDates.value.filter((x) => x !== d);
-}
-
-function mergeBulkLines(raw: string): string[] {
-  const lines = raw
-    .split(/\r?\n/)
-    .map((l) => l.trim())
-    .filter(Boolean);
-  const out: string[] = [];
-  for (const line of lines) {
-    if (/^\d{4}-\d{2}-\d{2}$/.test(line)) out.push(line);
-  }
-  return [...new Set(out)].sort();
-}
-
-function mergeBulkDates() {
-  const extra = mergeBulkLines(bulkDatesText.value);
-  if (!extra.length) return;
-  draftDates.value = [...new Set([...draftDates.value, ...extra])].sort();
-}
-
 function submitEntry() {
   const dates = [...draftDates.value].sort();
   if (!formProject.value.trim() || dates.length === 0) {
@@ -412,8 +282,6 @@ function submitEntry() {
   addEntry(formProject.value, dates);
   formProject.value = "";
   draftDates.value = [];
-  bulkDatesText.value = "";
-  pendingDateInput.value = isoToday();
   snackText.value = "Saved.";
   snack.value = true;
 }
@@ -445,26 +313,57 @@ function monthTitle(y: number, m: number): string {
   );
 }
 
-function formatShortDate(iso: string): string {
+function formatDayLabel(iso: string): string {
   const [y, mo, d] = iso.split("-").map(Number);
   if (!y || !mo || !d) return iso;
   return new Intl.DateTimeFormat(undefined, {
+    weekday: "short",
     month: "short",
     day: "numeric",
   }).format(new Date(y, mo - 1, d));
 }
 
 function onDayClick(date: string) {
-  if (!draftDates.value.includes(date))
+  const jobsOnDay = datesByDay.value.get(date);
+  if (jobsOnDay?.length) {
+    const ids = [...new Set(jobsOnDay.map((j) => j.id))];
+    highlightedJobIds.value = ids;
+    if (highlightClearTimer) clearTimeout(highlightClearTimer);
+    highlightClearTimer = setTimeout(() => {
+      highlightedJobIds.value = [];
+      highlightClearTimer = undefined;
+    }, 3200);
+
+    nextTick(() => {
+      document.getElementById(`job-row-${ids[0]}`)?.scrollIntoView({
+        behavior: "smooth",
+        block: "nearest",
+      });
+    });
+
+    const names = [...new Set(jobsOnDay.map((j) => j.project))];
+    snackText.value =
+      names.length === 1
+        ? `${formatDayLabel(date)} · ${names[0]}`
+        : `${formatDayLabel(date)} · ${names.join(", ")}`;
+    snack.value = true;
+    return;
+  }
+
+  if (!draftDates.value.includes(date)) {
     draftDates.value = [...draftDates.value, date].sort();
-  pendingDateInput.value = date;
-  snackText.value = `${date} added to this entry — add a project name and save.`;
-  snack.value = true;
+    return;
+  }
+  draftDates.value = draftDates.value.filter((x) => x !== date);
 }
+
+onScopeDispose(() => {
+  if (highlightClearTimer) clearTimeout(highlightClearTimer);
+});
 </script>
 
 <style scoped>
-/* Mobile-first, high-contrast light UI (readable on phones; cards lift off soft gray bg) */
+/* Light palette (default). Dark uses .planning-page--dark (synced with html.theme-dark). */
 .planning-page {
   --plan-bg: #f1f5f9;
   --plan-text: #0f172a;
@@ -472,9 +371,21 @@ function onDayClick(date: string) {
   --plan-hint: #64748b;
   --plan-border: #e2e8f0;
   --plan-surface: #ffffff;
+  --plan-mini-bg: #f8fafc;
   --plan-accent: #2563eb;
   --plan-accent-soft: #dbeafe;
   --plan-work: #1d4ed8;
+  --plan-work-border: #93c5fd;
+  --plan-day-hover-bg: #eef2ff;
+  --plan-day-hover-border: #c7d2fe;
+  --plan-job-flash-bg: rgba(37, 99, 235, 0.14);
+  --plan-job-flash-border: rgba(37, 99, 235, 0.4);
+  --plan-draft-bg: rgba(245, 158, 11, 0.2);
+  --plan-draft-border: rgba(217, 119, 6, 0.65);
+  --plan-draft-text: #b45309;
+  --plan-draft-hover-bg: rgba(251, 191, 36, 0.28);
+  --plan-draft-hover-border: rgba(217, 119, 6, 0.85);
+  --plan-shadow: 0 1px 3px rgba(15, 23, 42, 0.06);
 
   min-height: 100vh;
   min-height: 100dvh;
@@ -486,8 +397,38 @@ function onDayClick(date: string) {
   line-height: 1.55;
 }
 
+html.theme-dark .planning-page {
+  --plan-bg: #0b1220;
+  --plan-text: #f1f5f9;
+  --plan-muted: #94a3b8;
+  --plan-hint: #64748b;
+  --plan-border: #334155;
+  --plan-surface: #151f33;
+  --plan-mini-bg: #111c2e;
+  --plan-accent: #60a5fa;
+  --plan-accent-soft: rgba(59, 130, 246, 0.22);
+  --plan-work: #bfdbfe;
+  --plan-work-border: #2563eb;
+  --plan-day-hover-bg: rgba(148, 163, 184, 0.14);
+  --plan-day-hover-border: #475569;
+  --plan-job-flash-bg: rgba(96, 165, 250, 0.16);
+  --plan-job-flash-border: rgba(96, 165, 250, 0.45);
+  --plan-draft-bg: rgba(251, 191, 36, 0.16);
+  --plan-draft-border: rgba(251, 191, 36, 0.45);
+  --plan-draft-text: #fde68a;
+  --plan-draft-hover-bg: rgba(251, 191, 36, 0.26);
+  --plan-draft-hover-border: rgba(253, 224, 71, 0.55);
+  --plan-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+
+  color-scheme: dark;
+}
+
 .planning-nav {
-  padding: clamp(12px, 4vw, 18px) clamp(12px, 4vw, 20px) 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: clamp(12px, 4vw, 18px) clamp(14px, 5vw, 20px) 0;
   max-width: 1200px;
   margin-inline: auto;
 }
@@ -570,7 +511,7 @@ function onDayClick(date: string) {
   height: 100%;
   background: var(--plan-surface) !important;
   border: 1px solid var(--plan-border) !important;
-  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06);
+  box-shadow: var(--plan-shadow);
 }
 
 .stat-line {
@@ -596,7 +537,7 @@ function onDayClick(date: string) {
 .surface-card {
   background: var(--plan-surface) !important;
   border: 1px solid var(--plan-border) !important;
-  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06);
+  box-shadow: var(--plan-shadow);
 }
 
 .card-title {
@@ -606,48 +547,7 @@ function onDayClick(date: string) {
   letter-spacing: -0.01em;
 }
 
-.date-add-row {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-@media (min-width: 380px) {
-  .date-add-row {
-    flex-direction: row;
-    flex-wrap: wrap;
-    align-items: stretch;
-  }
-
-  .native-date {
-    flex: 1;
-    min-width: min(100%, 200px);
-  }
-
-  .date-add-row .touch-btn {
-    flex-shrink: 0;
-    align-self: stretch;
-  }
-}
-
-.native-date {
-  width: 100%;
-  min-height: 48px;
-  padding: 12px 14px;
-  border-radius: 12px;
-  border: 1px solid var(--plan-border);
-  background: var(--plan-surface);
-  color: var(--plan-text);
-  font: inherit;
-  font-size: 1rem;
-}
-
-.native-date:focus-visible {
-  outline: 2px solid var(--plan-accent);
-  outline-offset: 2px;
-}
-
-.touch-btn {
+.card-title {
   min-height: 48px !important;
   font-weight: 650 !important;
 }
@@ -656,16 +556,20 @@ function onDayClick(date: string) {
   color: var(--plan-muted) !important;
 }
 
-.date-chips {
-  line-height: 2;
-}
-
 .entry-list {
   padding: 0 !important;
 }
 
 .entry-item {
   border: 1px solid transparent;
+}
+
+.entry-item--highlight {
+  background: var(--plan-job-flash-bg) !important;
+  border-color: var(--plan-job-flash-border) !important;
+  transition:
+    background 0.22s ease,
+    border-color 0.22s ease;
 }
 
 .entry-item + .entry-item {
@@ -712,61 +616,75 @@ function onDayClick(date: string) {
 }
 
 .mini-month {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  column-gap: 4px;
+  row-gap: 6px;
+  align-items: start;
   padding: 10px 8px 12px;
   border-radius: 14px;
-  background: #f8fafc;
+  background: var(--plan-mini-bg);
   border: 1px solid var(--plan-border);
 }
 
 .mini-month__title {
+  grid-column: 1 / -1;
   font-size: 0.8125rem;
   font-weight: 750;
-  margin-bottom: 8px;
+  margin: 0;
   text-align: center;
   color: var(--plan-text);
 }
 
 .weekday-row {
-  display: grid;
-  grid-template-columns: repeat(7, 1fr);
-  gap: 4px;
-  margin-bottom: 6px;
+  display: contents;
+}
+
+.weekday-row span {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
   font-size: 0.65rem;
   font-weight: 700;
   color: var(--plan-hint);
   text-align: center;
   text-transform: uppercase;
   letter-spacing: 0.04em;
+  line-height: 1;
 }
 
 .day-grid {
-  display: grid;
-  grid-template-columns: repeat(7, 1fr);
-  gap: 4px;
+  display: contents;
 }
 
 .day-cell {
+  box-sizing: border-box;
   display: flex;
   align-items: center;
   justify-content: center;
-  min-height: 36px;
+  width: 100%;
+  min-width: 0;
   aspect-ratio: 1;
-  border: none;
+  margin: 0;
+  border: 1px solid transparent;
   border-radius: 10px;
+  font: inherit;
   font-size: 0.75rem;
   font-weight: 600;
   padding: 0;
   cursor: default;
   background: var(--plan-surface);
   color: var(--plan-text);
-  border: 1px solid transparent;
   line-height: 1;
+  appearance: none;
+  -webkit-appearance: none;
 }
 
 @media (hover: hover) and (pointer: fine) {
-  .day-cell:not(:disabled):hover {
-    background: #eef2ff;
-    border-color: #c7d2fe;
+  .day-cell:not(:disabled):not(.day-cell--draft):hover {
+    background: var(--plan-day-hover-bg);
+    border-color: var(--plan-day-hover-border);
   }
 }
 
@@ -778,73 +696,28 @@ function onDayClick(date: string) {
 .day-cell--work {
   background: var(--plan-accent-soft);
   color: var(--plan-work);
-  border-color: #93c5fd;
+  border-color: var(--plan-work-border);
   font-weight: 800;
   cursor: pointer;
 }
 
-.day-cell:not(.day-cell--pad):not(:disabled) {
+.day-cell--draft {
+  background: var(--plan-draft-bg);
+  color: var(--plan-draft-text);
+  border-color: var(--plan-draft-border);
+  font-weight: 800;
   cursor: pointer;
 }
 
-@media (hover: none) {
-  .day-cell:not(.day-cell--pad) {
-    min-height: 40px;
+@media (hover: hover) and (pointer: fine) {
+  .day-cell--draft:not(:disabled):hover {
+    background: var(--plan-draft-hover-bg);
+    border-color: var(--plan-draft-hover-border);
   }
 }
 
-.month-panels {
-  border: none !important;
-  box-shadow: none !important;
-  background: transparent !important;
-}
-
-.panel-title {
-  font-weight: 650 !important;
-  color: var(--plan-text) !important;
-  padding-block: 14px !important;
-  min-height: 52px !important;
-}
-
-.panel-meta {
-  margin-left: 8px;
-  font-size: 0.8125rem;
-  font-weight: 600;
-  color: var(--plan-muted);
-}
-
-.panel-body {
-  padding-inline: 0 !important;
-}
-
-.table-scroll {
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
-  margin: 0 -4px;
-  padding: 0 4px;
-}
-
-.month-table {
-  min-width: 100%;
-  font-size: 0.9375rem;
-}
-
-.month-table :deep(th),
-.month-table :deep(td) {
-  color: var(--plan-text) !important;
-  border-color: var(--plan-border) !important;
-}
-
-.month-table :deep(th) {
-  font-weight: 700 !important;
-  font-size: 0.8125rem !important;
-}
-
-.date-pill {
-  display: inline-block;
-  margin: 2px 6px 2px 0;
-  padding: 2px 0;
-  white-space: nowrap;
+.day-cell:not(.day-cell--pad):not(:disabled) {
+  cursor: pointer;
 }
 
 /* Vuetify field readability on light cards */
@@ -871,18 +744,6 @@ function onDayClick(date: string) {
 .plan-field :deep(.v-messages__message) {
   color: var(--plan-hint) !important;
   opacity: 1 !important;
-}
-
-.planning-page :deep(.v-expansion-panel) {
-  border: 1px solid var(--plan-border) !important;
-  border-radius: 14px !important;
-  overflow: hidden;
-  margin-bottom: 10px !important;
-  background: var(--plan-surface) !important;
-}
-
-.planning-page :deep(.v-expansion-panel-title__overlay) {
-  opacity: 0 !important;
 }
 
 .plan-snackbar :deep(.v-snackbar__wrapper) {

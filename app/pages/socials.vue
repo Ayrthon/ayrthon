@@ -1,6 +1,9 @@
 <template>
   <section class="socials">
     <div class="socials__card">
+      <div class="socials__theme">
+        <SiteThemeToggle />
+      </div>
       <header class="socials__header">
         <v-avatar class="socials__avatar" size="112">
           <v-img
@@ -122,6 +125,7 @@ const links = [
 }
 
 .socials__card {
+  position: relative;
   width: 100%;
   max-width: 420px;
   border-radius: 28px;
@@ -134,8 +138,14 @@ const links = [
     0 24px 70px rgba(0, 0, 0, 0.9),
     0 0 0 1px rgba(148, 163, 184, 0.4);
   backdrop-filter: blur(18px);
-  position: relative;
   overflow: hidden;
+}
+
+.socials__theme {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 5;
 }
 
 .socials__card::before {

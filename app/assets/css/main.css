@@ -1,5 +1,18 @@
 body {
   font-family: Roboto, system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
-  background-color: black;
-  color: white;
+  background-color: var(--site-body-bg, #020617);
+  color: var(--site-body-text, #f8fafc);
+  transition:
+    background-color 0.25s ease,
+    color 0.25s ease;
+}
+
+html.theme-dark {
+  --site-body-bg: #020617;
+  --site-body-text: #f8fafc;
+}
+
+html:not(.theme-dark) {
+  --site-body-bg: #f8fafc;
+  --site-body-text: #0f172a;
 }
