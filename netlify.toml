@@ -4,3 +4,10 @@
 
 [build.environment]
   NODE_VERSION = "22"
+
+# Planner APIs are authenticated; prevent edge/CDN from caching JSON without Cookie variance.
+[[headers]]
+  for = "/api/planning/*"
+  [headers.values]
+    Cache-Control = "private, no-store, must-revalidate, max-age=0"
+    Vary = "Cookie"

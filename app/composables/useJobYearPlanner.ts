@@ -17,6 +17,12 @@ export function toIsoDateString(input: Date | string): string {
   return padDate(input.getFullYear(), input.getMonth(), input.getDate());
 }
 
+/** Avoid CDN/browser caching stale planner JSON on hard refresh (Netlify edge). */
+const fetchPlannerOpts = {
+  credentials: "include" as const,
+  cache: "no-store" as RequestCache,
+};
+
 export function useJobYearPlanner() {
   const syncEnabled = inject(
     "planningSync",
@@ -30,13 +36,15 @@ export function useJobYearPlanner() {
   /** True after remote state applied (or failed attempt while sync enabled). */
   const hydrated = ref(false);
 
+  /** Skip autosave while applying remote payload (avoid redundant PUT). */
+  let applyingRemote = false;
+
   let saveTimer: ReturnType<typeof setTimeout> | null = null;
 
   async function pullLoad() {
+    applyingRemote = true;
     try {
-      const data = await $fetch<StoredState>("/api/planning/data", {
-        credentials: "include",
-      });
+      const data = await fetchPlanningStateOnce();
       if (typeof data.comfortTarget === "number" && data.comfortTarget > 0) {
         comfortTarget.value = data.comfortTarget;
       }
@@ -56,10 +64,29 @@ export function useJobYearPlanner() {
             && Array.isArray(e.dates),
         );
       }
-    } catch {
-      entries.value = [];
+    } catch (e: unknown) {
+      const code = getFetchStatus(e);
+      if (import.meta.dev) {
+        console.warn("[planning] GET /api/planning/data failed:", code ?? e);
+      }
+      /** Keep default refs; do not wipe — empty JSON was often a stale CDN cache, not "no data". */
     } finally {
+      applyingRemote = false;
       hydrated.value = true;
+    }
+  }
+
+  /** One retry on cold starts / transient Netlify errors so refresh does not show an empty planner. */
+  async function fetchPlanningStateOnce(): Promise<StoredState> {
+    try {
+      return await $fetch<StoredState>("/api/planning/data", fetchPlannerOpts);
+    } catch (first: unknown) {
+      const code = getFetchStatus(first);
+      const transient =
+        code === undefined || code === 502 || code === 503 || code === 504;
+      if (!transient) throw first;
+      await new Promise((r) => setTimeout(r, 400));
+      return await $fetch<StoredState>("/api/planning/data", fetchPlannerOpts);
     }
   }
 
@@ -68,7 +95,7 @@ export function useJobYearPlanner() {
       clearTimeout(saveTimer);
       saveTimer = null;
     }
-    if (!syncEnabled.value || !hydrated.value) return;
+    if (!syncEnabled.value || !hydrated.value || applyingRemote) return;
     const payload: StoredState = {
       comfortTarget: comfortTarget.value,
       dayRate: dayRate.value,
@@ -79,17 +106,21 @@ export function useJobYearPlanner() {
         method: "PUT",
         credentials: "include",
         body: payload,
+        cache: "no-store",
         keepalive: opts?.keepalive === true,
       });
-    } catch {
-      /* offline / expired session — silent */
+    } catch (e: unknown) {
+      if (import.meta.dev) {
+        console.warn("[planning] PUT failed:", getFetchStatus(e), e);
+      }
     }
   }
 
+  /** Debounced save — short window so shift-refresh loses less often. */
   function scheduleSave() {
     if (!syncEnabled.value || typeof window === "undefined") return;
     if (saveTimer) clearTimeout(saveTimer);
-    saveTimer = setTimeout(() => void flushSave(), 280);
+    saveTimer = setTimeout(() => void flushSave(), 90);
   }
 
   watch(
@@ -113,10 +144,10 @@ export function useJobYearPlanner() {
   watch(
     [comfortTarget, dayRate, entries],
     () => {
-      if (!hydrated.value || !syncEnabled.value) return;
+      if (!hydrated.value || !syncEnabled.value || applyingRemote) return;
       scheduleSave();
     },
-    { deep: true },
+    { deep: true, flush: "post" },
   );
 
   if (import.meta.client) {
@@ -240,8 +271,15 @@ export function useJobYearPlanner() {
     removeEntry,
     setComfortTarget,
     setDayRate,
-    /** Manual flush (e.g. before unload); normally debounced via watch. */
     flushSave,
     toIsoDateString,
   };
+}
+
+function getFetchStatus(e: unknown): number | undefined {
+  if (!e || typeof e !== "object") return undefined;
+  const x = e as { statusCode?: unknown; status?: unknown };
+  if (typeof x.statusCode === "number") return x.statusCode;
+  if (typeof x.status === "number") return x.status;
+  return undefined;
 }

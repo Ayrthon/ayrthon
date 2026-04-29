@@ -35,6 +35,7 @@ export function usePlanningAuth() {
     try {
       const r = await $fetch<{ ok: boolean }>("/api/planning/session", {
         credentials: "include",
+        cache: "no-store",
       });
       authenticated.value = r.ok;
     } catch {
@@ -51,6 +52,7 @@ export function usePlanningAuth() {
         method: "POST",
         body: { password },
         credentials: "include",
+        cache: "no-store",
       });
       authenticated.value = true;
     } catch (e: unknown) {
@@ -65,6 +67,7 @@ export function usePlanningAuth() {
       await $fetch("/api/planning/logout", {
         method: "POST",
         credentials: "include",
+        cache: "no-store",
       });
     } catch {
       /* still treat as logged out locally */

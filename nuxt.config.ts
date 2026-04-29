@@ -51,6 +51,15 @@ export default defineNuxtConfig({
     preset: "netlify",
   },
 
+  routeRules: {
+    "/api/planning/**": {
+      headers: {
+        "cache-control": "private, no-store, must-revalidate, max-age=0",
+        vary: "Cookie",
+      },
+    },
+  },
+
   runtimeConfig: {
     planningPassword: "",
     planningSessionSecret: "",
