@@ -10,7 +10,7 @@
           class="planning-nav__signout"
           rounded="xl"
           variant="text"
-          @click="auth.logout"
+          @click="signOut"
         >
           Sign out
         </v-btn>
@@ -412,7 +412,13 @@ const {
   removeEntry,
   setComfortTarget,
   setDayRate,
+  flushSave,
 } = useJobYearPlanner();
+
+async function signOut() {
+  await flushSave();
+  await auth.logout();
+}
 
 const currentYear = new Date().getFullYear();
 const yearItems = Array.from({ length: 7 }, (_, i) => currentYear - 3 + i);

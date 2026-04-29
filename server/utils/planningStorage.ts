@@ -1,13 +1,13 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import process from "node:process";
 import type { StoredState } from "~~/shared/planning-state";
 
 const BLOB_KEY = "planner-state";
 
+/** Stable path for local dev (`nuxt dev`). Do not derive from `import.meta.url` — bundled chunks live under `.output/` and would scatter `.data/` files. */
 function planningDataFile(): string {
-  const root = fileURLToPath(new URL("../..", import.meta.url));
-  return resolve(root, ".data/planning-state.json");
+  return resolve(process.cwd(), ".data/planning-state.json");
 }
 
 /** Prefer Netlify Blobs on deployed Functions; use `.data/` for local Node only. */

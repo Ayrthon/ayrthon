@@ -63,7 +63,11 @@ export function useJobYearPlanner() {
     }
   }
 
-  async function flushSave() {
+  async function flushSave(opts?: { keepalive?: boolean }) {
+    if (saveTimer) {
+      clearTimeout(saveTimer);
+      saveTimer = null;
+    }
     if (!syncEnabled.value || !hydrated.value) return;
     const payload: StoredState = {
       comfortTarget: comfortTarget.value,
@@ -75,6 +79,7 @@ export function useJobYearPlanner() {
         method: "PUT",
         credentials: "include",
         body: payload,
+        keepalive: opts?.keepalive === true,
       });
     } catch {
       /* offline / expired session — silent */
@@ -84,7 +89,7 @@ export function useJobYearPlanner() {
   function scheduleSave() {
     if (!syncEnabled.value || typeof window === "undefined") return;
     if (saveTimer) clearTimeout(saveTimer);
-    saveTimer = setTimeout(() => void flushSave(), 650);
+    saveTimer = setTimeout(() => void flushSave(), 280);
   }
 
   watch(
@@ -113,6 +118,21 @@ export function useJobYearPlanner() {
     },
     { deep: true },
   );
+
+  if (import.meta.client) {
+    const hotFlush = () => void flushSave({ keepalive: true });
+    const onVis = () => {
+      if (document.visibilityState === "hidden") hotFlush();
+    };
+    window.addEventListener("pagehide", hotFlush);
+    window.addEventListener("beforeunload", hotFlush);
+    document.addEventListener("visibilitychange", onVis);
+    onScopeDispose(() => {
+      window.removeEventListener("pagehide", hotFlush);
+      window.removeEventListener("beforeunload", hotFlush);
+      document.removeEventListener("visibilitychange", onVis);
+    });
+  }
 
   const uniqueDaysInSelectedYear = computed(() => {
     const y = year.value;
