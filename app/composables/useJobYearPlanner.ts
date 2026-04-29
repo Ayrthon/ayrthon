@@ -8,6 +8,8 @@ const STORAGE_KEY = "ayrthon-job-planner-v1";
 
 export interface StoredState {
   comfortTarget: number;
+  /** Revenue per logged day (EUR; estimates use EUR). */
+  dayRate?: number;
   entries: JobEntry[];
 }
 
@@ -29,6 +31,7 @@ export function toIsoDateString(input: Date | string): string {
 export function useJobYearPlanner() {
   const year = ref(new Date().getFullYear());
   const comfortTarget = ref(48);
+  const dayRate = ref(0);
   const entries = ref<JobEntry[]>([]);
   const hydrated = ref(false);
 
@@ -43,6 +46,13 @@ export function useJobYearPlanner() {
       const data = JSON.parse(raw) as StoredState;
       if (typeof data.comfortTarget === "number" && data.comfortTarget > 0) {
         comfortTarget.value = data.comfortTarget;
+      }
+      if (
+        typeof data.dayRate === "number"
+        && Number.isFinite(data.dayRate)
+        && data.dayRate >= 0
+      ) {
+        dayRate.value = Math.round(data.dayRate * 100) / 100;
       }
       if (Array.isArray(data.entries)) {
         entries.value = data.entries.filter(
@@ -63,6 +73,7 @@ export function useJobYearPlanner() {
     if (typeof window === "undefined") return;
     const payload: StoredState = {
       comfortTarget: comfortTarget.value,
+      dayRate: dayRate.value,
       entries: entries.value,
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
@@ -72,7 +83,7 @@ export function useJobYearPlanner() {
     load();
   });
 
-  watch([comfortTarget, entries], () => {
+  watch([comfortTarget, dayRate, entries], () => {
     if (!hydrated.value) return;
     save();
   }, { deep: true });
@@ -164,9 +175,16 @@ export function useJobYearPlanner() {
     if (Number.isFinite(v) && v > 0) comfortTarget.value = v;
   }
 
+  function setDayRate(n: number) {
+    const v = Number(n);
+    if (!Number.isFinite(v) || v < 0) return;
+    dayRate.value = Math.round(v * 100) / 100;
+  }
+
   return {
     year,
     comfortTarget,
+    dayRate,
     entries,
     hydrated,
     uniqueDaysInSelectedYear,
@@ -175,6 +193,7 @@ export function useJobYearPlanner() {
     addEntry,
     removeEntry,
     setComfortTarget,
+    setDayRate,
     save,
     toIsoDateString,
   };

@@ -11,51 +11,54 @@
       <v-container class="planning-wrap" fluid>
         <header class="planning-head">
           <p class="planning-eyebrow">
-            Personal · Job days / year
+            Personal
           </p>
-          <h1 class="planning-title">
-            Planning
-          </h1>
+          <div class="planning-title-row">
+            <h1 class="planning-title">
+              Planning
+            </h1>
+            <v-select
+              v-model="yearModel"
+              :items="yearItems"
+              class="planning-year-field planning-year-select"
+              density="compact"
+              hide-details
+              hide-no-data
+              label="Year"
+              variant="underlined"
+            />
+          </div>
           <p class="planning-sub">
             Track work days against your yearly comfort target. Data stays in this browser (local storage).
           </p>
         </header>
 
         <v-row class="controls-row" dense>
-          <v-col cols="6" lg="4">
-            <v-select
-              v-model="yearModel"
-              :items="yearItems"
-              class="plan-field"
-              density="comfortable"
-              hide-details
-              label="Year"
-              variant="outlined"
-            />
-          </v-col>
-          <v-col cols="6" lg="4">
-            <v-text-field
-              :model-value="comfortTarget"
-              class="plan-field"
-              density="comfortable"
-              hide-details
-              label="Comfort (days / yr)"
-              min="1"
-              step="1"
-              type="number"
-              variant="outlined"
-              @update:model-value="onComfortInput"
-            />
-          </v-col>
-          <v-col cols="12" lg="4">
+          <v-col cols="12">
             <v-sheet class="stat-sheet pa-4" rounded="xl">
               <div class="stat-line">
                 <span class="stat-label">Logged days</span>
-                <span class="stat-num">{{ uniqueDaysInSelectedYear }} / {{ comfortTarget }}</span>
+                <div class="stat-line__right">
+                  <div class="stat-line__nums">
+                    <span class="stat-num">{{ uniqueDaysInSelectedYear }} / {{ comfortTarget }}</span>
+                    <v-btn
+                      aria-label="Planning settings"
+                      class="stat-settings-btn touch-icon"
+                      icon="mdi-cog-outline"
+                      variant="text"
+                      @click="comfortSettingsOpen = true"
+                    />
+                  </div>
+                  <p v-if="estimatedRevenueFormatted" class="stat-revenue mb-0">
+                    Est. revenue {{ estimatedRevenueFormatted }}
+                  </p>
+                </div>
               </div>
               <v-progress-linear
                 :model-value="progressPct"
-                class="mt-3"
+                :style="{ '--stat-progress-pct': progressPct }"
+                class="stat-progress mt-3"
+                bg-opacity="0.32"
                 color="primary"
                 height="12"
                 rounded
@@ -68,59 +71,8 @@
         </v-row>
 
         <v-row>
-          <v-col cols="12" lg="5">
-            <v-card
-              v-if="draftDates.length === 0"
-              class="surface-card pa-4 mb-4 mb-lg-6"
-              rounded="xl"
-              variant="flat"
-            >
-              <p class="help-text mb-0">
-                Tap dates on the calendar (same year as above) to start a new job entry. Selected days appear on the calendar in amber.
-              </p>
-            </v-card>
-
-            <v-card class="surface-card pa-4" rounded="xl" variant="flat">
-              <v-card-title class="card-title px-0 pt-0 pb-3">
-                Jobs ({{ entries.length }})
-              </v-card-title>
-              <v-list v-if="entriesSorted.length" bg-color="transparent" class="entry-list" density="comfortable">
-                <v-list-item
-                  v-for="e in entriesSorted"
-                  :id="'job-row-' + e.id"
-                  :key="e.id"
-                  :class="[
-                    'entry-item px-2 py-2 rounded-lg',
-                    { 'entry-item--highlight': highlightedJobIds.includes(e.id) },
-                  ]"
-                  rounded="lg"
-                >
-                  <v-list-item-title class="entry-title">
-                    {{ e.project }}
-                  </v-list-item-title>
-                  <v-list-item-subtitle class="entry-sub">
-                    {{ summarizeDates(e.dates) }}
-                  </v-list-item-subtitle>
-                  <template #append>
-                    <v-btn
-                      aria-label="Remove entry"
-                      class="touch-icon"
-                      icon="mdi-delete-outline"
-                      size="large"
-                      variant="text"
-                      @click="removeEntry(e.id)"
-                    />
-                  </template>
-                </v-list-item>
-              </v-list>
-              <p v-else class="empty-text mb-0">
-                No jobs yet.
-              </p>
-            </v-card>
-          </v-col>
-
-          <v-col cols="12" lg="7">
-            <v-card class="surface-card pa-4" rounded="xl" variant="flat">
+          <v-col cols="12">
+            <v-card id="planning-calendar-card" class="surface-card pa-4" rounded="xl" variant="flat">
               <v-card-title class="card-title px-0 pt-0 pb-4">
                 Calendar · {{ year }}
               </v-card-title>
@@ -138,6 +90,7 @@
                   </div>
                   <div
                     class="mini-month__calendar"
+                    :class="{ 'draft-paint-active': draftPaintActive }"
                     @mouseleave="onMiniMonthCalendarLeave"
                   >
                     <div
@@ -155,12 +108,24 @@
                     <button
                       v-for="(cell, idx) in cellsForMonth(year, m - 1)"
                       :key="idx"
+                      :data-plan-date="cell.kind === 'day' ? cell.date : undefined"
+                      :id="
+                        cell.kind === 'day'
+                          ? 'plan-cal-' + cell.date
+                          : undefined
+                      "
+                      :aria-current="
+                        cell.kind === 'day' && cell.date === todayIso
+                          ? 'date'
+                          : undefined
+                      "
                       :class="dayCellClasses(cell, year, m - 1)"
                       :disabled="cell.kind !== 'day'"
                       :style="dayCellGridStyle(idx)"
                       type="button"
-                      @mouseenter="cell.kind === 'day' ? onMiniMonthDayEnter(cell, year, m - 1) : undefined"
-                      @click="cell.kind === 'day' && cell.date ? onDayClick(cell.date) : null"
+                      @mouseenter="cell.kind === 'day' ? onMiniMonthDayEnter(cell) : undefined"
+                      @pointerdown="cell.kind === 'day' ? onCalendarDayPointerDown(cell, $event) : undefined"
+                      @click="cell.kind === 'day' && cell.date ? onCalendarDayClick(cell.date) : null"
                     >
                       <template v-if="cell.kind === 'day'">
                         {{ cell.dayNum }}
@@ -169,6 +134,47 @@
                   </div>
                 </div>
               </div>
+            </v-card>
+          </v-col>
+
+          <v-col cols="12">
+            <v-card class="surface-card pa-4" rounded="xl" variant="flat">
+              <v-card-title class="card-title px-0 pt-0 pb-3">
+                Jobs ({{ entries.length }})
+              </v-card-title>
+              <v-list v-if="entriesSorted.length" bg-color="transparent" class="entry-list" density="comfortable">
+                <v-list-item
+                  v-for="e in entriesSorted"
+                  :id="'job-row-' + e.id"
+                  :key="e.id"
+                  :class="[
+                    'entry-item px-2 py-2 rounded-lg',
+                    { 'entry-item--highlight': highlightedJobIds.includes(e.id) },
+                  ]"
+                  rounded="lg"
+                  @click="onJobRowClick(e)"
+                >
+                  <v-list-item-title class="entry-title">
+                    {{ e.project }}
+                  </v-list-item-title>
+                  <v-list-item-subtitle class="entry-sub">
+                    {{ summarizeDates(e.dates) }}
+                  </v-list-item-subtitle>
+                  <template #append>
+                    <v-btn
+                      aria-label="Remove entry"
+                      class="touch-icon"
+                      icon="mdi-delete-outline"
+                      size="large"
+                      variant="text"
+                      @click.stop="removeEntry(e.id)"
+                    />
+                  </template>
+                </v-list-item>
+              </v-list>
+              <p v-else class="empty-text mb-0">
+                No jobs yet.
+              </p>
             </v-card>
           </v-col>
         </v-row>
@@ -227,6 +233,72 @@
         </transition>
       </Teleport>
 
+      <v-dialog
+        v-model="comfortSettingsOpen"
+        class="comfort-settings-dialog"
+        max-width="340"
+        scroll-strategy="close"
+      >
+        <v-card
+          class="comfort-settings-card surface-card draft-bubble-theme pa-4"
+          rounded="xl"
+          variant="flat"
+        >
+          <v-card-title class="comfort-settings-card__title px-0 pt-0 pb-3">
+            Planning settings
+          </v-card-title>
+          <v-card-text class="px-0 pb-2 pt-0">
+            <v-text-field
+              v-model.number="comfortDraft"
+              class="plan-field"
+              density="comfortable"
+              hide-details="auto"
+              label="Comfort target (days / year)"
+              min="1"
+              step="1"
+              type="number"
+              variant="outlined"
+              @keyup.enter="saveComfortSettings"
+            />
+            <p class="comfort-settings-hint mb-0 mt-3">
+              Distinct work days in {{ year }} count toward this yearly goal.
+            </p>
+            <v-text-field
+              v-model.number="dayRateDraft"
+              class="plan-field mt-4"
+              density="comfortable"
+              hide-details="auto"
+              label="Day rate (per logged day)"
+              hint="Leave at 0 to hide revenue. Estimate = distinct logged days in the selected year × rate."
+              min="0"
+              persistent-hint
+              step="0.01"
+              type="number"
+              variant="outlined"
+              @keyup.enter="saveComfortSettings"
+            />
+          </v-card-text>
+          <v-card-actions class="comfort-settings-actions px-0 pb-0 pt-2">
+            <v-spacer />
+            <v-btn
+              rounded="xl"
+              variant="text"
+              @click="comfortSettingsOpen = false"
+            >
+              Cancel
+            </v-btn>
+            <v-btn
+              color="primary"
+              rounded="xl"
+              variant="flat"
+              @click="saveComfortSettings"
+            >
+              Save
+            </v-btn>
+          </v-card-actions>
+        </v-card>
+      </v-dialog>
+
       <v-snackbar
         v-model="snack"
         class="plan-snackbar"
@@ -249,6 +321,8 @@
 </template>
 
 <script setup lang="ts">
+import type { JobEntry } from "~/composables/useJobYearPlanner";
+
 useHead({
   title: "Planning · Ayrthon",
   meta: [{ name: "robots", content: "noindex, nofollow" }],
@@ -257,12 +331,14 @@ useHead({
 const {
   year,
   comfortTarget,
+  dayRate,
   entries,
   uniqueDaysInSelectedYear,
   datesByDay,
   addEntry,
   removeEntry,
   setComfortTarget,
+  setDayRate,
 } = useJobYearPlanner();
 
 const currentYear = new Date().getFullYear();
@@ -277,12 +353,79 @@ const yearModel = computed({
 
 const formProject = ref("");
 const draftDates = ref<string[]>([]);
+/** Click-drag on calendar: add draft dates from empty cells, or remove when starting on selected cells. */
+const draftPaintActive = ref(false);
+const draftPaintDragIntent = ref(false);
+/** Avoid duplicate tap handling after pointer gesture ends (click follows pointerup). */
+const suppressCalendarDayClick = ref(false);
+let draftPaintStrokeSet = new Set<string>();
+let draftPaintSubtractMode = false;
+let draftPaintStartX = 0;
+let draftPaintStartY = 0;
+/** Debounce duplicate toggle from pointerup + click firing close together. */
+let lastDraftToggleAt = 0;
+let lastDraftToggleIso = "";
 /** Multi-day run highlighted together on hover (`job:…` or `draft:…`). */
 const hoveredCalendarRunKey = ref<string | null>(null);
 const highlightedJobIds = ref<string[]>([]);
+/** Local calendar date (YYYY-MM-DD) for “today”; refreshed on mount and every minute. */
+const todayIso = ref("");
 let highlightClearTimer: ReturnType<typeof setTimeout> | undefined;
 const snack = ref(false);
 const snackText = ref("");
+const comfortSettingsOpen = ref(false);
+const comfortDraft = ref(48);
+const dayRateDraft = ref(0);
+
+watch(comfortSettingsOpen, (open) => {
+  if (open) {
+    comfortDraft.value = comfortTarget.value;
+    dayRateDraft.value = dayRate.value;
+  }
+});
+
+function syncTodayIso() {
+  const n = new Date();
+  todayIso.value = `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, "0")}-${String(n.getDate()).padStart(2, "0")}`;
+}
+
+if (import.meta.client) syncTodayIso();
+
+onMounted(() => {
+  syncTodayIso();
+  const tid = window.setInterval(syncTodayIso, 60_000);
+  onScopeDispose(() => clearInterval(tid));
+});
+
+function saveComfortSettings() {
+  const n = Math.round(Number(comfortDraft.value));
+  if (!Number.isFinite(n) || n < 1) {
+    snackText.value = "Enter a positive whole number for comfort target.";
+    snack.value = true;
+    return;
+  }
+  const rate = Number(dayRateDraft.value);
+  if (!Number.isFinite(rate) || rate < 0) {
+    snackText.value = "Enter a valid day rate (0 or greater).";
+    snack.value = true;
+    return;
+  }
+  setComfortTarget(n);
+  setDayRate(rate);
+  comfortSettingsOpen.value = false;
+}
+
+const estimatedRevenueFormatted = computed(() => {
+  const rate = dayRate.value;
+  if (!Number.isFinite(rate) || rate <= 0) return null;
+  const total = uniqueDaysInSelectedYear.value * rate;
+  return new Intl.NumberFormat(undefined, {
+    style: "currency",
+    currency: "EUR",
+    minimumFractionDigits: 0,
+    maximumFractionDigits: total % 1 === 0 ? 0 : 2,
+  }).format(total);
+});
 
 const progressPct = computed(() => {
   const t = comfortTarget.value || 1;
@@ -292,9 +435,15 @@ const progressPct = computed(() => {
 const progressNote = computed(() => {
   const u = uniqueDaysInSelectedYear.value;
   const t = comfortTarget.value;
-  const diff = t - u;
-  if (diff <= 0) return "At or above comfort target for this year.";
-  return `${diff} more distinct work day(s) to reach comfort.`;
+  if (u < t) {
+    const diff = t - u;
+    return `${diff} more distinct work day${diff === 1 ? "" : "s"} to reach comfort.`;
+  }
+  if (u === t) {
+    return "Met comfort target for this year.";
+  }
+  const over = u - t;
+  return `${over} distinct work day${over === 1 ? "" : "s"} above comfort target for this year.`;
 });
 
 const entriesSorted = computed(() =>
@@ -310,15 +459,102 @@ function minDate(dates: string[]): string | null {
   return [...dates].sort()[0] ?? null;
 }
 
-function onComfortInput(v: string | number | null) {
-  const n = typeof v === "string" ? Number.parseInt(v, 10) : Number(v);
-  if (Number.isFinite(n) && n > 0) setComfortTarget(n);
+function parseIsoParts(iso: string): { y: number; mo: number; d: number } | null {
+  const [ys, ms, ds] = iso.split("-");
+  const y = Number(ys);
+  const mo = Number(ms);
+  const d = Number(ds);
+  if (!Number.isFinite(y) || !Number.isFinite(mo) || !Number.isFinite(d)) return null;
+  return { y, mo, d };
+}
+
+function consecutiveIsoDays(a: string, b: string): boolean {
+  const pa = parseIsoParts(a);
+  const pb = parseIsoParts(b);
+  if (!pa || !pb) return false;
+  const da = new Date(pa.y, pa.mo - 1, pa.d);
+  const db = new Date(pb.y, pb.mo - 1, pb.d);
+  return (db.getTime() - da.getTime()) / 86_400_000 === 1;
+}
+
+/** Sort ISO dates and split into maximal consecutive calendar-day runs. */
+function groupSortedIntoRuns(sorted: string[]): string[][] {
+  if (!sorted.length) return [];
+  const runs: string[][] = [];
+  let cur = [sorted[0]!];
+  for (let i = 1; i < sorted.length; i++) {
+    const prev = sorted[i - 1]!;
+    const iso = sorted[i]!;
+    if (consecutiveIsoDays(prev, iso)) cur.push(iso);
+    else {
+      runs.push(cur);
+      cur = [iso];
+    }
+  }
+  runs.push(cur);
+  return runs;
+}
+
+function formatIsoForJobList(iso: string, omitYear: boolean): string {
+  const p = parseIsoParts(iso);
+  if (!p) return iso;
+  const opts: Intl.DateTimeFormatOptions = {
+    month: "short",
+    day: "numeric",
+  };
+  if (!omitYear) opts.year = "numeric";
+  return new Intl.DateTimeFormat(undefined, opts).format(
+    new Date(p.y, p.mo - 1, p.d),
+  );
+}
+
+/** One contiguous run of days → compact label (e.g. Jan 15–17 or Jan 15 – Feb 2). */
+function formatRunForJobList(run: string[], omitYear: boolean): string {
+  if (run.length === 1) return formatIsoForJobList(run[0]!, omitYear);
+
+  const first = run[0]!;
+  const last = run[run.length - 1]!;
+  const pf = parseIsoParts(first);
+  const pl = parseIsoParts(last);
+  if (!pf || !pl) return run.map((iso) => formatIsoForJobList(iso, omitYear)).join(" · ");
+
+  const allStepwise = run.every((iso, idx) =>
+    idx === 0 ? true : consecutiveIsoDays(run[idx - 1]!, iso),
+  );
+  if (!allStepwise) {
+    return run.map((iso) => formatIsoForJobList(iso, omitYear)).join(" · ");
+  }
+
+  if (pf.y === pl.y && pf.mo === pl.mo) {
+    const moLabel = new Intl.DateTimeFormat(undefined, { month: "short" }).format(
+      new Date(pf.y, pf.mo - 1, 1),
+    );
+    const yearSuffix = omitYear ? "" : `\u00a0${pf.y}`;
+    return `${moLabel}\u00a0${pf.d}–${pl.d}${yearSuffix}`;
+  }
+
+  return `${formatIsoForJobList(first, omitYear)}\u00a0–\u00a0${formatIsoForJobList(last, omitYear)}`;
 }
 
 function summarizeDates(dates: string[]): string {
-  const sorted = [...dates].sort();
-  if (sorted.length <= 3) return sorted.join(", ");
-  return `${sorted.slice(0, 3).join(", ")} +${sorted.length - 3} more`;
+  const sorted = [...new Set(dates)].sort();
+  if (!sorted.length) return "";
+
+  const years = new Set(sorted.map((iso) => iso.slice(0, 4)));
+  const omitYear = years.size === 1;
+
+  const runs = groupSortedIntoRuns(sorted);
+  const segments = runs.map((run) => formatRunForJobList(run, omitYear));
+
+  if (segments.length <= 3) {
+    return segments.join(" · ");
+  }
+
+  const shown = segments.slice(0, 3).join(" · ");
+  const shownDays = runs.slice(0, 3).reduce((n, r) => n + r.length, 0);
+  const rest = sorted.length - shownDays;
+  const dayWord = rest === 1 ? "day" : "days";
+  return `${shown} · +${rest}\u00a0more ${dayWord}`;
 }
 
 function submitEntry() {
@@ -543,46 +779,29 @@ function cellUsesDraftBlock(iso: string, y: number, monthIndex: number): boolean
   return runs.some((run) => run.length > 1 && run.includes(idx));
 }
 
-/** Stable key for the contiguous calendar run containing `iso` in this mini-month (multi-day only). */
-function calendarRunHoverKey(
-  iso: string,
-  y: number,
-  monthIndex: number,
-): string | null {
+/** Stable key so all dates in the current draft multi-select hover-highlight together (even when not adjacent). */
+function draftSelectionHoverKey(): string | null {
+  if (draftDates.value.length <= 1) return null;
+  return `draft-selection:${[...draftDates.value].sort().join("|")}`;
+}
+
+/** Hover/shading key for calendar cells: draft multi-select groups, or all days of a multi-date job (even if not adjacent). */
+function calendarRunHoverKey(iso: string): string | null {
   if (draftDates.value.includes(iso) && draftDates.value.length > 1) {
-    const pad = padForMonth(y, monthIndex);
-    const idx = gridIndexFromIso(iso, pad);
-    const prefix = `${y}-${String(monthIndex + 1).padStart(2, "0")}-`;
-    const inMonth = draftDates.value.filter((d) => d.startsWith(prefix)).sort();
-    if (inMonth.length <= 1) return null;
-    const indices = indicesFromIsoDates(inMonth, pad);
-    const runs = splitIntoConsecutiveRuns(indices);
-    for (const run of runs) {
-      if (run.length <= 1 || !run.includes(idx)) continue;
-      return `draft:${y}:${monthIndex}:${run[0]}-${run[run.length - 1]}`;
-    }
-    return null;
+    return draftSelectionHoverKey();
   }
 
-  const pad = padForMonth(y, monthIndex);
-  const idx = gridIndexFromIso(iso, pad);
   for (const entry of entries.value) {
     if (entry.dates.length <= 1) continue;
-    const inMonth = isoDatesInMonthForEntry(entry, y, monthIndex);
-    if (inMonth.length <= 1) continue;
-    const indices = indicesFromIsoDates(inMonth, pad);
-    const runs = splitIntoConsecutiveRuns(indices);
-    for (const run of runs) {
-      if (run.length <= 1 || !run.includes(idx)) continue;
-      return `job:${entry.id}:${y}:${monthIndex}:${run[0]}-${run[run.length - 1]}`;
-    }
+    if (!entry.dates.includes(iso)) continue;
+    return `job-entry:${entry.id}`;
   }
   return null;
 }
 
-function onMiniMonthDayEnter(cell: Cell, y: number, monthIndex: number) {
+function onMiniMonthDayEnter(cell: Cell) {
   if (cell.kind !== "day") return;
-  hoveredCalendarRunKey.value = calendarRunHoverKey(cell.date, y, monthIndex);
+  hoveredCalendarRunKey.value = calendarRunHoverKey(cell.date);
 }
 
 function onMiniMonthCalendarLeave() {
@@ -598,11 +817,16 @@ function dayCellGridStyle(idx: number): Record<string, string> {
   };
 }
 
+function appendTodayMarker(cls: string[], iso: string) {
+  if (iso === todayIso.value) cls.push("day-cell--today");
+}
+
 function dayCellClasses(cell: Cell, y: number, monthIndex: number): string[] {
   if (cell.kind === "pad") return ["day-cell", "day-cell--pad"];
   const iso = cell.date;
+  const flashJob = isoInHighlightedJobs(iso);
   const draft = draftDates.value.includes(iso);
-  const runKey = calendarRunHoverKey(iso, y, monthIndex);
+  const runKey = calendarRunHoverKey(iso);
   const runHoverActive =
     hoveredCalendarRunKey.value !== null &&
     runKey !== null &&
@@ -614,14 +838,22 @@ function dayCellClasses(cell: Cell, y: number, monthIndex: number): string[] {
       cls.push("day-cell--draft-on-block");
       if (runHoverActive) cls.push("day-cell--calendar-run-hover");
     }
+    if (flashJob) cls.push("day-cell--job-flash");
+    appendTodayMarker(cls, iso);
     return cls;
   }
   const cls = ["day-cell"];
-  if (!datesByDay.value.has(iso)) return cls;
+  if (!datesByDay.value.has(iso)) {
+    if (flashJob) cls.push("day-cell--job-flash");
+    appendTodayMarker(cls, iso);
+    return cls;
+  }
   if (cellUsesJobBlock(iso, y, monthIndex)) {
     cls.push("day-cell--work", "day-cell--work-on-block");
     if (runHoverActive) cls.push("day-cell--calendar-run-hover");
   } else cls.push("day-cell--work");
+  if (flashJob) cls.push("day-cell--job-flash");
+  appendTodayMarker(cls, iso);
   return cls;
 }
 
@@ -641,21 +873,166 @@ function formatDayLabel(iso: string): string {
   }).format(new Date(y, mo - 1, d));
 }
 
+function scheduleHighlightClear() {
+  if (highlightClearTimer) clearTimeout(highlightClearTimer);
+  highlightClearTimer = setTimeout(() => {
+    highlightedJobIds.value = [];
+    highlightClearTimer = undefined;
+  }, 3200);
+}
+
+/** Calendar cells get a ring when their ISO date belongs to a highlighted job (from list or day click). */
+function isoInHighlightedJobs(iso: string): boolean {
+  if (!highlightedJobIds.value.length) return false;
+  for (const id of highlightedJobIds.value) {
+    const e = entries.value.find((x) => x.id === id);
+    if (e?.dates.includes(iso)) return true;
+  }
+  return false;
+}
+
+function entryDatesInSelectedYear(entry: JobEntry): string[] {
+  const prefix = `${year.value}-`;
+  return entry.dates.filter((d) => d.startsWith(prefix)).sort();
+}
+
+function onJobRowClick(entry: JobEntry) {
+  highlightedJobIds.value = [entry.id];
+  scheduleHighlightClear();
+
+  const yearDates = entryDatesInSelectedYear(entry);
+  const scrollTargetId =
+    yearDates.length > 0 ? `plan-cal-${yearDates[0]}` : "planning-calendar-card";
+
+  nextTick(() => {
+    document.getElementById(scrollTargetId)?.scrollIntoView({
+      behavior: "smooth",
+      block: "center",
+      inline: "center",
+    });
+  });
+
+  snackText.value =
+    yearDates.length > 0
+      ? `${entry.project} · ${formatDayLabel(yearDates[0]!)}`
+      : `${entry.project}`;
+  snack.value = true;
+}
+
+function isoFromClientPoint(clientX: number, clientY: number): string | null {
+  const el = document.elementFromPoint(clientX, clientY);
+  const btn = el?.closest?.("[data-plan-date]");
+  const raw = btn?.getAttribute?.("data-plan-date") ?? "";
+  return /^\d{4}-\d{2}-\d{2}$/.test(raw) ? raw : null;
+}
+
+function mergeDraftDayIntoSelection(iso: string) {
+  if (!draftDates.value.includes(iso)) {
+    draftDates.value = [...draftDates.value, iso].sort();
+  }
+}
+
+function subtractDraftDayFromSelection(iso: string) {
+  if (draftDates.value.includes(iso)) {
+    draftDates.value = draftDates.value.filter((x) => x !== iso);
+  }
+}
+
+function toggleDraftDaySelection(iso: string) {
+  const now = Date.now();
+  if (iso === lastDraftToggleIso && now - lastDraftToggleAt < 320) return;
+  lastDraftToggleIso = iso;
+  lastDraftToggleAt = now;
+
+  if (draftDates.value.includes(iso)) {
+    draftDates.value = draftDates.value.filter((x) => x !== iso);
+  } else {
+    draftDates.value = [...draftDates.value, iso].sort();
+  }
+}
+
+function cleanupDraftPaintGestureListeners() {
+  window.removeEventListener("pointermove", draftPaintPointerMoveHandler);
+  window.removeEventListener("pointerup", draftPaintPointerEndHandler);
+  window.removeEventListener("pointercancel", draftPaintPointerEndHandler);
+}
+
+function draftPaintPointerMoveHandler(e: PointerEvent) {
+  if (!draftPaintActive.value) return;
+
+  const iso = isoFromClientPoint(e.clientX, e.clientY);
+  if (!iso) return;
+  if (datesByDay.value.get(iso)?.length) return;
+
+  draftPaintStrokeSet.add(iso);
+  if (draftPaintSubtractMode) {
+    subtractDraftDayFromSelection(iso);
+  } else {
+    mergeDraftDayIntoSelection(iso);
+  }
+  if (draftPaintStrokeSet.size > 1) draftPaintDragIntent.value = true;
+}
+
+function draftPaintPointerEndHandler(_e: PointerEvent) {
+  cleanupDraftPaintGestureListeners();
+  const wasPaintGesture = draftPaintActive.value;
+  draftPaintActive.value = false;
+  if (!wasPaintGesture) return;
+
+  suppressCalendarDayClick.value = true;
+
+  if (!draftPaintDragIntent.value && draftPaintStrokeSet.size === 1) {
+    toggleDraftDaySelection([...draftPaintStrokeSet][0]!);
+  }
+
+  draftPaintDragIntent.value = false;
+  draftPaintStrokeSet.clear();
+  draftPaintSubtractMode = false;
+}
+
+function onCalendarDayPointerDown(cell: Cell, e: PointerEvent) {
+  if (cell.kind !== "day" || !cell.date) return;
+  suppressCalendarDayClick.value = false;
+
+  const iso = cell.date;
+  if (datesByDay.value.get(iso)?.length) return;
+
+  if (e.pointerType === "mouse" && e.button !== 0) return;
+
+  e.preventDefault();
+
+  draftPaintActive.value = true;
+  draftPaintDragIntent.value = false;
+  draftPaintSubtractMode = draftDates.value.includes(iso);
+  draftPaintStrokeSet = new Set([iso]);
+  draftPaintStartX = e.clientX;
+  draftPaintStartY = e.clientY;
+
+  window.addEventListener("pointermove", draftPaintPointerMoveHandler);
+  window.addEventListener("pointerup", draftPaintPointerEndHandler);
+  window.addEventListener("pointercancel", draftPaintPointerEndHandler);
+}
+
+function onCalendarDayClick(date: string) {
+  if (suppressCalendarDayClick.value) {
+    suppressCalendarDayClick.value = false;
+    return;
+  }
+  onDayClick(date);
+}
+
 function onDayClick(date: string) {
   const jobsOnDay = datesByDay.value.get(date);
   if (jobsOnDay?.length) {
     const ids = [...new Set(jobsOnDay.map((j) => j.id))];
     highlightedJobIds.value = ids;
-    if (highlightClearTimer) clearTimeout(highlightClearTimer);
-    highlightClearTimer = setTimeout(() => {
-      highlightedJobIds.value = [];
-      highlightClearTimer = undefined;
-    }, 3200);
+    scheduleHighlightClear();
 
     nextTick(() => {
       document.getElementById(`job-row-${ids[0]}`)?.scrollIntoView({
         behavior: "smooth",
-        block: "nearest",
+        block: "center",
+        inline: "center",
       });
     });
 
@@ -668,15 +1045,13 @@ function onDayClick(date: string) {
     return;
   }
 
-  if (!draftDates.value.includes(date)) {
-    draftDates.value = [...draftDates.value, date].sort();
-    return;
-  }
-  draftDates.value = draftDates.value.filter((x) => x !== date);
+  toggleDraftDaySelection(date);
 }
 
 onScopeDispose(() => {
   if (highlightClearTimer) clearTimeout(highlightClearTimer);
+  cleanupDraftPaintGestureListeners();
+  draftPaintActive.value = false;
 });
 </script>
 
@@ -704,8 +1079,9 @@ onScopeDispose(() => {
   --plan-work-hover-ring: rgba(37, 99, 235, 0.38);
   --plan-work-on-block-hover-bg: rgba(255, 255, 255, 0.58);
   --plan-work-on-block-hover-border: rgba(37, 99, 235, 0.62);
-  --plan-job-flash-bg: rgba(37, 99, 235, 0.14);
-  --plan-job-flash-border: rgba(37, 99, 235, 0.4);
+  --plan-job-flash-bg: rgba(22, 163, 74, 0.14);
+  --plan-job-flash-border: rgba(22, 163, 74, 0.42);
+  --plan-today-ring: #0d9488;
   --plan-draft-bg: rgba(245, 158, 11, 0.2);
   --plan-draft-border: rgba(217, 119, 6, 0.65);
   --plan-draft-text: #b45309;
@@ -747,8 +1123,9 @@ html.theme-dark .draft-bubble-theme {
   --plan-work-hover-ring: rgba(147, 197, 253, 0.48);
   --plan-work-on-block-hover-bg: rgba(30, 58, 138, 0.52);
   --plan-work-on-block-hover-border: rgba(147, 197, 253, 0.72);
-  --plan-job-flash-bg: rgba(96, 165, 250, 0.16);
-  --plan-job-flash-border: rgba(96, 165, 250, 0.45);
+  --plan-job-flash-bg: rgba(74, 222, 128, 0.14);
+  --plan-job-flash-border: rgba(74, 222, 128, 0.48);
+  --plan-today-ring: #5eead4;
   --plan-draft-bg: rgba(251, 191, 36, 0.16);
   --plan-draft-border: rgba(251, 191, 36, 0.45);
   --plan-draft-text: #fde68a;
@@ -816,13 +1193,64 @@ html.theme-dark .draft-bubble-theme {
   margin: 0 0 0.4rem;
 }
 
+.planning-title-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 0.65rem 1rem;
+  margin-bottom: 0.5rem;
+}
+
 .planning-title {
   font-size: clamp(1.65rem, 6vw, 2.15rem);
   font-weight: 750;
   letter-spacing: -0.02em;
   line-height: 1.15;
-  margin: 0 0 0.5rem;
+  margin: 0;
   color: var(--plan-text);
+  flex: 0 1 auto;
+}
+
+.planning-year-field {
+  flex: 0 0 90px;
+  width: 90px;
+  min-width: 90px;
+  max-width: 90px;
+}
+
+.planning-year-select :deep(.v-input) {
+  width: 100%;
+}
+
+.planning-year-select :deep(.v-field) {
+  border-radius: 0;
+}
+
+.planning-year-select :deep(.v-field--variant-underlined .v-field__outline) {
+  --v-field-border-opacity: 0.55;
+}
+
+.planning-year-select :deep(.v-field--focused .v-field__outline) {
+  --v-field-border-opacity: 1;
+}
+
+.planning-year-select :deep(.v-label) {
+  font-size: 0.8125rem !important;
+  font-weight: 600 !important;
+  color: var(--plan-muted) !important;
+  opacity: 1 !important;
+}
+
+.planning-year-select :deep(.v-select__selection-text) {
+  font-size: 1rem !important;
+  font-weight: 650 !important;
+  letter-spacing: -0.02em;
+  color: var(--plan-text) !important;
+}
+
+.planning-year-select :deep(.v-field__append-inner) {
+  padding-inline-start: 2px;
 }
 
 .planning-sub {
@@ -836,7 +1264,6 @@ html.theme-dark .draft-bubble-theme {
   margin-bottom: clamp(18px, 4vw, 28px) !important;
 }
 
-.help-text,
 .stat-hint,
 .empty-text {
   font-size: 0.875rem;
@@ -853,8 +1280,15 @@ html.theme-dark .draft-bubble-theme {
 .stat-line {
   display: flex;
   justify-content: space-between;
-  align-items: baseline;
   gap: 1rem;
+}
+
+.stat-line:not(:has(.stat-revenue)) {
+  align-items: center;
+}
+
+.stat-line:has(.stat-revenue) {
+  align-items: flex-start;
 }
 
 .stat-label {
@@ -863,11 +1297,98 @@ html.theme-dark .draft-bubble-theme {
   color: var(--plan-muted);
 }
 
+.stat-line:has(.stat-revenue) .stat-label {
+  padding-top: 0.35rem;
+}
+
+.stat-line__right {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  min-width: 0;
+}
+
+.stat-revenue {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  color: var(--plan-muted);
+  line-height: 1.35;
+  text-align: right;
+}
+
+.stat-line__nums {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
 .stat-num {
   font-size: clamp(1.2rem, 4vw, 1.45rem);
   font-weight: 750;
   font-variant-numeric: tabular-nums;
   color: var(--plan-text);
+}
+
+.stat-settings-btn {
+  flex-shrink: 0;
+}
+
+.stat-progress :deep(.v-progress-linear__determinate) {
+  border-radius: inherit;
+  background-color: transparent !important;
+  background-image: linear-gradient(
+    90deg,
+    #ef4444 0%,
+    #eab308 50%,
+    #22c55e 100%
+  ) !important;
+  background-size: calc(
+      100% / max(0.004, calc(var(--stat-progress-pct, 100) / 100))
+    )
+    100% !important;
+  background-position: left center !important;
+  background-repeat: no-repeat !important;
+  box-shadow:
+    0 0 18px rgba(239, 68, 68, 0.22),
+    0 0 22px rgba(34, 197, 94, 0.18);
+}
+
+.stat-progress :deep(.v-progress-linear__background) {
+  opacity: 0.32 !important;
+}
+
+.comfort-settings-card.draft-bubble-theme.surface-card {
+  color: var(--plan-text);
+  color-scheme: light;
+  background-color: var(--plan-surface) !important;
+}
+
+html.theme-dark .comfort-settings-card.draft-bubble-theme.surface-card {
+  color-scheme: dark;
+}
+
+.comfort-settings-dialog :deep(.v-overlay__content) {
+  width: min(100%, 250px);
+}
+
+.comfort-settings-card__title {
+  font-size: 1.125rem !important;
+  font-weight: 700 !important;
+  color: var(--plan-text) !important;
+  letter-spacing: -0.01em;
+}
+
+.comfort-settings-hint {
+  font-size: 0.8125rem;
+  color: var(--plan-muted);
+  line-height: 1.45;
+}
+
+.comfort-settings-actions {
+  gap: 8px;
 }
 
 .surface-card {
@@ -908,6 +1429,18 @@ html.theme-dark .draft-bubble-theme {
     border-color 0.22s ease;
 }
 
+.day-cell--job-flash {
+  box-shadow: 0 0 0 2px var(--plan-job-flash-border);
+  transition: box-shadow 0.22s ease;
+}
+
+.day-cell--today:not(.day-cell--pad) {
+  outline: 2px solid var(--plan-today-ring);
+  outline-offset: 1px;
+  position: relative;
+  z-index: 2;
+}
+
 .entry-item + .entry-item {
   margin-top: 8px;
 }
@@ -920,11 +1453,15 @@ html.theme-dark .draft-bubble-theme {
 }
 
 .entry-sub {
-  margin-top: 4px !important;
-  font-size: 0.875rem !important;
+  margin-top: 6px !important;
+  font-size: 0.90625rem !important;
+  font-weight: 450 !important;
+  line-height: 1.45 !important;
+  letter-spacing: 0.01em !important;
   color: var(--plan-muted) !important;
   opacity: 1 !important;
   white-space: normal !important;
+  font-variant-numeric: tabular-nums;
 }
 
 .year-grid {
@@ -947,7 +1484,21 @@ html.theme-dark .draft-bubble-theme {
 
 @media (min-width: 1024px) {
   .year-grid {
-    grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(158px, 1fr));
+  }
+
+  .mini-month {
+    column-gap: 5px;
+    row-gap: 7px;
+    padding: 11px 10px 13px;
+  }
+
+  .mini-month__calendar {
+    gap: 5px;
+  }
+
+  .day-cell {
+    font-size: 0.8125rem;
   }
 }
 
@@ -996,6 +1547,11 @@ html.theme-dark .draft-bubble-theme {
   grid-template-columns: repeat(7, minmax(0, 1fr));
   gap: 4px;
   align-items: stretch;
+}
+
+.mini-month__calendar.draft-paint-active {
+  user-select: none;
+  touch-action: none;
 }
 
 .mini-month__job-block {
@@ -1170,7 +1726,7 @@ html.theme-dark .draft-bubble-theme {
   font-weight: 550;
 }
 
-/* Floating draft composer (teleported to body) */
+/* Floating draft composer (teleported to body) — bottom-centered on desktop */
 .draft-bubble-anchor {
   position: fixed;
   z-index: 10050;
@@ -1179,7 +1735,7 @@ html.theme-dark .draft-bubble-theme {
   left: max(12px, env(safe-area-inset-left));
   pointer-events: none;
   display: flex;
-  justify-content: flex-end;
+  justify-content: center;
   align-items: flex-end;
 }
 
