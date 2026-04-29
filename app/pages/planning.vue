@@ -136,19 +136,30 @@
                   <div class="weekday-row">
                     <span v-for="(w, wi) in weekdayLetters" :key="wi">{{ w }}</span>
                   </div>
-                  <div class="day-grid">
+                  <div
+                    class="mini-month__calendar"
+                    @mouseleave="onMiniMonthCalendarLeave"
+                  >
+                    <div
+                      v-for="(blk, bi) in monthJobBlocks(year, m - 1)"
+                      :key="'jb-' + (m - 1) + '-' + bi"
+                      class="mini-month__job-block"
+                      :style="blk.style"
+                    />
+                    <div
+                      v-for="(blk, bi) in monthDraftBlocks(year, m - 1)"
+                      :key="'db-' + (m - 1) + '-' + bi"
+                      class="mini-month__draft-block"
+                      :style="blk.style"
+                    />
                     <button
                       v-for="(cell, idx) in cellsForMonth(year, m - 1)"
                       :key="idx"
-                      class="day-cell"
-                      :class="{
-                        'day-cell--pad': cell.kind === 'pad',
-                        'day-cell--work': cell.kind === 'day' && cell.date && datesByDay.has(cell.date),
-                        'day-cell--draft':
-                          cell.kind === 'day' && cell.date && draftDates.includes(cell.date),
-                      }"
+                      :class="dayCellClasses(cell, year, m - 1)"
                       :disabled="cell.kind !== 'day'"
+                      :style="dayCellGridStyle(idx)"
                       type="button"
+                      @mouseenter="cell.kind === 'day' ? onMiniMonthDayEnter(cell, year, m - 1) : undefined"
                       @click="cell.kind === 'day' && cell.date ? onDayClick(cell.date) : null"
                     >
                       <template v-if="cell.kind === 'day'">
@@ -266,6 +277,8 @@ const yearModel = computed({
 
 const formProject = ref("");
 const draftDates = ref<string[]>([]);
+/** Multi-day run highlighted together on hover (`job:…` or `draft:…`). */
+const hoveredCalendarRunKey = ref<string | null>(null);
 const highlightedJobIds = ref<string[]>([]);
 let highlightClearTimer: ReturnType<typeof setTimeout> | undefined;
 const snack = ref(false);
@@ -331,10 +344,14 @@ type Cell =
   | { kind: "pad" }
   | { kind: "day"; date: string; dayNum: number };
 
-function cellsForMonth(y: number, monthIndex: number): Cell[] {
+function padForMonth(y: number, monthIndex: number): number {
   const first = new Date(y, monthIndex, 1);
+  return (first.getDay() + 6) % 7;
+}
+
+function cellsForMonth(y: number, monthIndex: number): Cell[] {
   const lastDay = new Date(y, monthIndex + 1, 0).getDate();
-  const pad = first.getDay();
+  const pad = padForMonth(y, monthIndex);
   const cells: Cell[] = [];
   for (let i = 0; i < pad; i++) cells.push({ kind: "pad" });
   for (let d = 1; d <= lastDay; d++) {
@@ -346,7 +363,267 @@ function cellsForMonth(y: number, monthIndex: number): Cell[] {
   return cells;
 }
 
-const weekdayLetters = ["S", "M", "T", "W", "T", "F", "S"];
+const weekdayLetters = ["M", "T", "W", "T", "F", "S", "S"];
+
+function gridIndexFromIso(iso: string, pad: number): number {
+  const dd = Number(iso.slice(8, 10));
+  return pad + dd - 1;
+}
+
+function isoDatesInMonthForEntry(
+  entry: { dates: string[] },
+  y: number,
+  monthIndex: number,
+): string[] {
+  const prefix = `${y}-${String(monthIndex + 1).padStart(2, "0")}-`;
+  return entry.dates.filter((d) => d.startsWith(prefix)).sort();
+}
+
+function indicesFromIsoDates(isos: string[], pad: number): number[] {
+  return isos.map((iso) => gridIndexFromIso(iso, pad));
+}
+
+/** Sorted unique indices split into maximal consecutive chains (calendar days, across week rows). */
+function splitIntoConsecutiveRuns(indices: number[]): number[][] {
+  const sorted = [...new Set(indices)].sort((a, b) => a - b);
+  if (!sorted.length) return [];
+  const runs: number[][] = [];
+  let cur = [sorted[0]!];
+  for (let i = 1; i < sorted.length; i++) {
+    const prev = sorted[i - 1]!;
+    const curr = sorted[i]!;
+    if (curr === prev + 1) cur.push(curr);
+    else {
+      runs.push(cur);
+      cur = [curr];
+    }
+  }
+  runs.push(cur);
+  return runs;
+}
+
+/** One contiguous index chain split into same-calendar-row segments (for grid placement). */
+function splitRunIntoRowSegments(run: number[]): number[][] {
+  if (!run.length) return [];
+  const segs: number[][] = [];
+  let cur = [run[0]!];
+  for (let i = 1; i < run.length; i++) {
+    const prev = run[i - 1]!;
+    const curr = run[i]!;
+    const sameRow = Math.floor(curr / 7) === Math.floor(prev / 7);
+    if (sameRow) cur.push(curr);
+    else {
+      segs.push(cur);
+      cur = [curr];
+    }
+  }
+  segs.push(cur);
+  return segs;
+}
+
+/** Include single-cell segments when they bridge rows (Sun→Mon) so span layers stay visible. */
+function segmentShouldRender(seg: number[], run: number[]): boolean {
+  if (seg.length > 1) return true;
+  if (run.length <= 1) return false;
+  const only = seg[0];
+  if (only === undefined) return false;
+  return run.includes(only - 1) || run.includes(only + 1);
+}
+
+function styleForCalendarSegment(
+  segment: number[],
+  opts: { draft: boolean },
+): Record<string, string> {
+  const i0 = segment[0]!;
+  const i1 = segment[segment.length - 1]!;
+  const row = Math.floor(i0 / 7);
+  const colStart = i0 % 7;
+  const span = i1 - i0 + 1;
+  const base: Record<string, string> = {
+    gridColumn: `${colStart + 1} / span ${span}`,
+    gridRow: `${row + 1}`,
+  };
+  if (opts.draft) {
+    return {
+      ...base,
+      background: "rgba(251, 191, 36, 0.32)",
+      border: "1px solid rgba(217, 119, 6, 0.55)",
+    };
+  }
+  return {
+    ...base,
+    background: "var(--plan-job-span-bg)",
+    border: "1px solid var(--plan-job-span-border)",
+  };
+}
+
+type CalendarSpanBlock = {
+  key: string;
+  style: Record<string, string>;
+};
+
+function monthJobBlocks(y: number, monthIndex: number): CalendarSpanBlock[] {
+  const pad = padForMonth(y, monthIndex);
+  const out: CalendarSpanBlock[] = [];
+  for (const entry of entries.value) {
+    if (entry.dates.length <= 1) continue;
+    const inMonth = isoDatesInMonthForEntry(entry, y, monthIndex);
+    if (inMonth.length <= 1) continue;
+    const indices = indicesFromIsoDates(inMonth, pad);
+    const runs = splitIntoConsecutiveRuns(indices);
+    for (const run of runs) {
+      if (run.length <= 1) continue;
+      const segments = splitRunIntoRowSegments(run);
+      const toRender = segments
+        .map((seg, origIdx) => ({ seg, origIdx }))
+        .filter(({ seg }) => segmentShouldRender(seg, run));
+      toRender.forEach(({ seg, origIdx }) => {
+        out.push({
+          key: `${entry.id}-m${monthIndex}-${run[0]}-${run[run.length - 1]}-s${origIdx}`,
+          style: styleForCalendarSegment(seg, { draft: false }),
+        });
+      });
+    }
+  }
+  return out;
+}
+
+function monthDraftBlocks(y: number, monthIndex: number): CalendarSpanBlock[] {
+  if (draftDates.value.length <= 1) return [];
+  const pad = padForMonth(y, monthIndex);
+  const prefix = `${y}-${String(monthIndex + 1).padStart(2, "0")}-`;
+  const inMonth = draftDates.value.filter((d) => d.startsWith(prefix)).sort();
+  if (inMonth.length <= 1) return [];
+  const indices = indicesFromIsoDates(inMonth, pad);
+  const runs = splitIntoConsecutiveRuns(indices);
+  const out: CalendarSpanBlock[] = [];
+  let blockIdx = 0;
+  for (const run of runs) {
+    if (run.length <= 1) continue;
+    const segments = splitRunIntoRowSegments(run);
+    const toRender = segments
+      .map((seg, origIdx) => ({ seg, origIdx }))
+      .filter(({ seg }) => segmentShouldRender(seg, run));
+    toRender.forEach(({ seg, origIdx }) => {
+      out.push({
+        key: `draft-${monthIndex}-${blockIdx}-s${origIdx}`,
+        style: styleForCalendarSegment(seg, { draft: true }),
+      });
+      blockIdx++;
+    });
+  }
+  return out;
+}
+
+function cellUsesJobBlock(iso: string, y: number, monthIndex: number): boolean {
+  const pad = padForMonth(y, monthIndex);
+  const idx = gridIndexFromIso(iso, pad);
+  for (const entry of entries.value) {
+    if (entry.dates.length <= 1) continue;
+    const inMonth = isoDatesInMonthForEntry(entry, y, monthIndex);
+    if (inMonth.length <= 1) continue;
+    const indices = indicesFromIsoDates(inMonth, pad);
+    const runs = splitIntoConsecutiveRuns(indices);
+    for (const run of runs) {
+      if (run.length > 1 && run.includes(idx)) return true;
+    }
+  }
+  return false;
+}
+
+function cellUsesDraftBlock(iso: string, y: number, monthIndex: number): boolean {
+  if (draftDates.value.length <= 1) return false;
+  const pad = padForMonth(y, monthIndex);
+  const idx = gridIndexFromIso(iso, pad);
+  const prefix = `${y}-${String(monthIndex + 1).padStart(2, "0")}-`;
+  const inMonth = draftDates.value.filter((d) => d.startsWith(prefix)).sort();
+  if (inMonth.length <= 1) return false;
+  const indices = indicesFromIsoDates(inMonth, pad);
+  const runs = splitIntoConsecutiveRuns(indices);
+  return runs.some((run) => run.length > 1 && run.includes(idx));
+}
+
+/** Stable key for the contiguous calendar run containing `iso` in this mini-month (multi-day only). */
+function calendarRunHoverKey(
+  iso: string,
+  y: number,
+  monthIndex: number,
+): string | null {
+  if (draftDates.value.includes(iso) && draftDates.value.length > 1) {
+    const pad = padForMonth(y, monthIndex);
+    const idx = gridIndexFromIso(iso, pad);
+    const prefix = `${y}-${String(monthIndex + 1).padStart(2, "0")}-`;
+    const inMonth = draftDates.value.filter((d) => d.startsWith(prefix)).sort();
+    if (inMonth.length <= 1) return null;
+    const indices = indicesFromIsoDates(inMonth, pad);
+    const runs = splitIntoConsecutiveRuns(indices);
+    for (const run of runs) {
+      if (run.length <= 1 || !run.includes(idx)) continue;
+      return `draft:${y}:${monthIndex}:${run[0]}-${run[run.length - 1]}`;
+    }
+    return null;
+  }
+
+  const pad = padForMonth(y, monthIndex);
+  const idx = gridIndexFromIso(iso, pad);
+  for (const entry of entries.value) {
+    if (entry.dates.length <= 1) continue;
+    const inMonth = isoDatesInMonthForEntry(entry, y, monthIndex);
+    if (inMonth.length <= 1) continue;
+    const indices = indicesFromIsoDates(inMonth, pad);
+    const runs = splitIntoConsecutiveRuns(indices);
+    for (const run of runs) {
+      if (run.length <= 1 || !run.includes(idx)) continue;
+      return `job:${entry.id}:${y}:${monthIndex}:${run[0]}-${run[run.length - 1]}`;
+    }
+  }
+  return null;
+}
+
+function onMiniMonthDayEnter(cell: Cell, y: number, monthIndex: number) {
+  if (cell.kind !== "day") return;
+  hoveredCalendarRunKey.value = calendarRunHoverKey(cell.date, y, monthIndex);
+}
+
+function onMiniMonthCalendarLeave() {
+  hoveredCalendarRunKey.value = null;
+}
+
+function dayCellGridStyle(idx: number): Record<string, string> {
+  const row = Math.floor(idx / 7) + 1;
+  const col = idx % 7;
+  return {
+    gridColumn: String(col + 1),
+    gridRow: String(row),
+  };
+}
+
+function dayCellClasses(cell: Cell, y: number, monthIndex: number): string[] {
+  if (cell.kind === "pad") return ["day-cell", "day-cell--pad"];
+  const iso = cell.date;
+  const draft = draftDates.value.includes(iso);
+  const runKey = calendarRunHoverKey(iso, y, monthIndex);
+  const runHoverActive =
+    hoveredCalendarRunKey.value !== null &&
+    runKey !== null &&
+    hoveredCalendarRunKey.value === runKey;
+
+  if (draft) {
+    const cls = ["day-cell", "day-cell--draft"];
+    if (cellUsesDraftBlock(iso, y, monthIndex)) {
+      cls.push("day-cell--draft-on-block");
+      if (runHoverActive) cls.push("day-cell--calendar-run-hover");
+    }
+    return cls;
+  }
+  const cls = ["day-cell"];
+  if (!datesByDay.value.has(iso)) return cls;
+  if (cellUsesJobBlock(iso, y, monthIndex)) {
+    cls.push("day-cell--work", "day-cell--work-on-block");
+    if (runHoverActive) cls.push("day-cell--calendar-run-hover");
+  } else cls.push("day-cell--work");
+  return cls;
+}
 
 function monthTitle(y: number, m: number): string {
   return new Intl.DateTimeFormat(undefined, { month: "short" }).format(
@@ -418,8 +695,15 @@ onScopeDispose(() => {
   --plan-accent-soft: #dbeafe;
   --plan-work: #1d4ed8;
   --plan-work-border: #93c5fd;
+  --plan-job-span-bg: rgba(219, 234, 254, 0.88);
+  --plan-job-span-border: rgba(59, 130, 246, 0.42);
   --plan-day-hover-bg: #eef2ff;
   --plan-day-hover-border: #c7d2fe;
+  --plan-work-hover-bg: #dbeafe;
+  --plan-work-hover-border: #60a5fa;
+  --plan-work-hover-ring: rgba(37, 99, 235, 0.38);
+  --plan-work-on-block-hover-bg: rgba(255, 255, 255, 0.58);
+  --plan-work-on-block-hover-border: rgba(37, 99, 235, 0.62);
   --plan-job-flash-bg: rgba(37, 99, 235, 0.14);
   --plan-job-flash-border: rgba(37, 99, 235, 0.4);
   --plan-draft-bg: rgba(245, 158, 11, 0.2);
@@ -454,8 +738,15 @@ html.theme-dark .draft-bubble-theme {
   --plan-accent-soft: rgba(59, 130, 246, 0.22);
   --plan-work: #bfdbfe;
   --plan-work-border: #2563eb;
+  --plan-job-span-bg: rgba(59, 130, 246, 0.28);
+  --plan-job-span-border: rgba(96, 165, 250, 0.48);
   --plan-day-hover-bg: rgba(148, 163, 184, 0.14);
   --plan-day-hover-border: #475569;
+  --plan-work-hover-bg: rgba(59, 130, 246, 0.26);
+  --plan-work-hover-border: rgba(147, 197, 253, 0.72);
+  --plan-work-hover-ring: rgba(147, 197, 253, 0.48);
+  --plan-work-on-block-hover-bg: rgba(30, 58, 138, 0.52);
+  --plan-work-on-block-hover-border: rgba(147, 197, 253, 0.72);
   --plan-job-flash-bg: rgba(96, 165, 250, 0.16);
   --plan-job-flash-border: rgba(96, 165, 250, 0.45);
   --plan-draft-bg: rgba(251, 191, 36, 0.16);
@@ -699,12 +990,34 @@ html.theme-dark .draft-bubble-theme {
   line-height: 1;
 }
 
-.day-grid {
-  display: contents;
+.mini-month__calendar {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 4px;
+  align-items: stretch;
+}
+
+.mini-month__job-block {
+  z-index: 0;
+  min-height: 0;
+  pointer-events: none;
+  align-self: stretch;
+  border-radius: 10px;
+}
+
+.mini-month__draft-block {
+  z-index: 1;
+  min-height: 0;
+  pointer-events: none;
+  align-self: stretch;
+  border-radius: 10px;
 }
 
 .day-cell {
   box-sizing: border-box;
+  position: relative;
+  z-index: 2;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -727,9 +1040,21 @@ html.theme-dark .draft-bubble-theme {
 }
 
 @media (hover: hover) and (pointer: fine) {
-  .day-cell:not(:disabled):not(.day-cell--draft):hover {
+  .day-cell:not(:disabled):not(.day-cell--draft):not(.day-cell--work):hover {
     background: var(--plan-day-hover-bg);
     border-color: var(--plan-day-hover-border);
+  }
+
+  .day-cell--work:not(.day-cell--work-on-block):not(:disabled):hover {
+    background: var(--plan-work-hover-bg);
+    border-color: var(--plan-work-hover-border);
+    box-shadow: 0 0 0 2px var(--plan-work-hover-ring);
+  }
+
+  .day-cell--work-on-block:not(:disabled):hover {
+    background: var(--plan-work-on-block-hover-bg) !important;
+    border-color: var(--plan-work-on-block-hover-border) !important;
+    box-shadow: 0 0 0 2px var(--plan-work-hover-ring);
   }
 }
 
@@ -744,6 +1069,27 @@ html.theme-dark .draft-bubble-theme {
   border-color: var(--plan-work-border);
   font-weight: 800;
   cursor: pointer;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.day-cell--work-on-block {
+  background: transparent !important;
+  border-color: transparent !important;
+  color: var(--plan-work);
+  font-weight: 800;
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.day-cell--work:focus-visible {
+  outline: 2px solid var(--plan-accent);
+  outline-offset: 2px;
 }
 
 .day-cell--draft {
@@ -754,11 +1100,36 @@ html.theme-dark .draft-bubble-theme {
   cursor: pointer;
 }
 
+.day-cell--draft-on-block {
+  background: transparent !important;
+  border-color: transparent !important;
+  color: var(--plan-draft-text);
+  font-weight: 800;
+  cursor: pointer;
+}
+
 @media (hover: hover) and (pointer: fine) {
-  .day-cell--draft:not(:disabled):hover {
+  .day-cell--draft:not(:disabled):not(.day-cell--draft-on-block):hover {
     background: var(--plan-draft-hover-bg);
     border-color: var(--plan-draft-hover-border);
   }
+
+  .day-cell--draft-on-block:not(:disabled):hover {
+    background: var(--plan-draft-hover-bg) !important;
+    border-color: transparent !important;
+  }
+}
+
+.day-cell--calendar-run-hover.day-cell--work-on-block:not(:disabled) {
+  background: var(--plan-work-on-block-hover-bg) !important;
+  border-color: var(--plan-work-on-block-hover-border) !important;
+  box-shadow: 0 0 0 2px var(--plan-work-hover-ring);
+}
+
+.day-cell--calendar-run-hover.day-cell--draft-on-block:not(:disabled) {
+  background: var(--plan-draft-hover-bg) !important;
+  border-color: var(--plan-draft-hover-border) !important;
+  box-shadow: 0 0 0 2px var(--plan-draft-hover-border);
 }
 
 .day-cell:not(.day-cell--pad):not(:disabled) {
