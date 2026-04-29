@@ -7,8 +7,8 @@
     </nav>
 
     <ClientOnly>
-      <v-container class="planning-wrap py-8" fluid>
-        <header class="planning-head mb-8">
+      <v-container class="planning-wrap" fluid>
+        <header class="planning-head">
           <p class="planning-eyebrow">
             Personal · Job days / year
           </p>
@@ -20,20 +20,22 @@
           </p>
         </header>
 
-        <v-row class="mb-6" dense>
-          <v-col cols="12" md="4">
+        <v-row class="controls-row" dense>
+          <v-col cols="12" sm="6" lg="4">
             <v-select
               v-model="yearModel"
               :items="yearItems"
+              class="plan-field"
               density="comfortable"
               hide-details
               label="Year"
               variant="outlined"
             />
           </v-col>
-          <v-col cols="12" md="4">
+          <v-col cols="12" sm="6" lg="4">
             <v-text-field
               :model-value="comfortTarget"
+              class="plan-field"
               density="comfortable"
               hide-details
               label="Comfort target (days / year)"
@@ -44,20 +46,20 @@
               @update:model-value="onComfortInput"
             />
           </v-col>
-          <v-col cols="12" md="4">
-            <v-sheet class="stat-sheet pa-4" rounded="lg">
+          <v-col cols="12" lg="4">
+            <v-sheet class="stat-sheet pa-4" rounded="xl">
               <div class="stat-line">
-                <span class="text-caption text-medium-emphasis">Logged days</span>
+                <span class="stat-label">Logged days</span>
                 <span class="stat-num">{{ uniqueDaysInSelectedYear }} / {{ comfortTarget }}</span>
               </div>
               <v-progress-linear
                 :model-value="progressPct"
                 class="mt-3"
                 color="primary"
-                height="10"
+                height="12"
                 rounded
               />
-              <p class="text-caption text-medium-emphasis mt-2 mb-0">
+              <p class="stat-hint mt-3 mb-0">
                 {{ progressNote }}
               </p>
             </v-sheet>
@@ -66,20 +68,20 @@
 
         <v-row>
           <v-col cols="12" lg="5">
-            <v-card class="pa-4 mb-6" rounded="lg" variant="outlined">
-              <v-card-title class="text-h6 px-0 pt-0 pb-3">
+            <v-card class="surface-card pa-4 mb-4 mb-lg-6" rounded="xl" variant="flat">
+              <v-card-title class="card-title px-0 pt-0 pb-3">
                 Add job days
               </v-card-title>
               <v-text-field
                 v-model="formProject"
-                class="mb-3"
+                class="plan-field mb-3"
                 density="comfortable"
                 hide-details="auto"
                 label="Project name"
                 variant="outlined"
               />
-              <p class="text-caption text-medium-emphasis mb-2">
-                Add one or more dates for this project (use “Add date” or paste ISO lines below).
+              <p class="help-text mb-3">
+                Add one or more dates (picker + Add date, or paste lines below).
               </p>
               <div class="date-add-row mb-3">
                 <input
@@ -87,7 +89,14 @@
                   class="native-date"
                   type="date"
                 >
-                <v-btn color="primary" rounded="lg" variant="tonal" @click="addPendingDate">
+                <v-btn
+                  class="touch-btn"
+                  color="primary"
+                  rounded="xl"
+                  size="large"
+                  variant="flat"
+                  @click="addPendingDate"
+                >
                   Add date
                 </v-btn>
               </div>
@@ -107,19 +116,20 @@
               <v-textarea
                 v-model="bulkDatesText"
                 auto-grow
-                class="mb-4"
+                class="plan-field mb-4"
                 density="comfortable"
-                hint="Optional: one YYYY-MM-DD per line — Merge into list"
+                hint="Optional: one YYYY-MM-DD per line (blur merges into list)"
                 label="Paste dates"
                 persistent-hint
-                rows="2"
+                rows="3"
                 variant="outlined"
                 @blur="mergeBulkDates"
               />
               <v-btn
                 block
+                class="touch-btn"
                 color="primary"
-                rounded="lg"
+                rounded="xl"
                 size="large"
                 variant="flat"
                 @click="submitEntry"
@@ -128,40 +138,44 @@
               </v-btn>
             </v-card>
 
-            <v-card class="pa-4" rounded="lg" variant="outlined">
-              <v-card-title class="text-h6 px-0 pt-0 pb-3">
+            <v-card class="surface-card pa-4" rounded="xl" variant="flat">
+              <v-card-title class="card-title px-0 pt-0 pb-3">
                 Entries ({{ entries.length }})
               </v-card-title>
-              <v-list v-if="entriesSorted.length" density="compact" lines="two">
+              <v-list v-if="entriesSorted.length" bg-color="transparent" class="entry-list" density="comfortable">
                 <v-list-item
                   v-for="e in entriesSorted"
                   :key="e.id"
-                  class="px-0"
+                  class="entry-item px-2 py-2 rounded-lg"
+                  rounded="lg"
                 >
-                  <v-list-item-title>{{ e.project }}</v-list-item-title>
-                  <v-list-item-subtitle>
+                  <v-list-item-title class="entry-title">
+                    {{ e.project }}
+                  </v-list-item-title>
+                  <v-list-item-subtitle class="entry-sub">
                     {{ summarizeDates(e.dates) }}
                   </v-list-item-subtitle>
                   <template #append>
                     <v-btn
                       aria-label="Remove entry"
+                      class="touch-icon"
                       icon="mdi-delete-outline"
-                      size="small"
+                      size="large"
                       variant="text"
                       @click="removeEntry(e.id)"
                     />
                   </template>
                 </v-list-item>
               </v-list>
-              <p v-else class="text-body-2 text-medium-emphasis mb-0">
+              <p v-else class="empty-text mb-0">
                 No entries yet.
               </p>
             </v-card>
           </v-col>
 
           <v-col cols="12" lg="7">
-            <v-card class="pa-4 mb-6" rounded="lg" variant="outlined">
-              <v-card-title class="text-h6 px-0 pt-0 pb-4">
+            <v-card class="surface-card pa-4 mb-4 mb-lg-6" rounded="xl" variant="flat">
+              <v-card-title class="card-title px-0 pt-0 pb-4">
                 Calendar · {{ year }}
               </v-card-title>
               <div class="year-grid">
@@ -198,52 +212,58 @@
               </div>
             </v-card>
 
-            <v-card class="pa-4" rounded="lg" variant="outlined">
-              <v-card-title class="text-h6 px-0 pt-0 pb-3">
+            <v-card class="surface-card pa-4" rounded="xl" variant="flat">
+              <v-card-title class="card-title px-0 pt-0 pb-3">
                 Planned jobs by month · {{ year }}
               </v-card-title>
-              <v-expansion-panels v-if="monthsWithRows.length" variant="accordion">
+              <v-expansion-panels
+                v-if="monthsWithRows.length"
+                class="month-panels"
+                variant="accordion"
+              >
                 <v-expansion-panel
                   v-for="block in monthsWithRows"
                   :key="block.monthIndex"
                 >
-                  <v-expansion-panel-title>
-                    {{ block.label }}
-                    <span class="text-caption text-medium-emphasis ml-2">
+                  <v-expansion-panel-title class="panel-title">
+                    <span>{{ block.label }}</span>
+                    <span class="panel-meta">
                       ({{ block.rows.length }})
                     </span>
                   </v-expansion-panel-title>
-                  <v-expansion-panel-text>
-                    <v-table density="compact" hover>
-                      <thead>
-                        <tr>
-                          <th class="text-left">
-                            Project
-                          </th>
-                          <th class="text-left">
-                            Dates
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        <tr v-for="row in block.rows" :key="row.project">
-                          <td>{{ row.project }}</td>
-                          <td>
-                            <span
-                              v-for="d in row.dates"
-                              :key="d"
-                              class="mr-1"
-                            >
-                              {{ formatShortDate(d) }}
-                            </span>
-                          </td>
-                        </tr>
-                      </tbody>
-                    </v-table>
+                  <v-expansion-panel-text class="panel-body">
+                    <div class="table-scroll">
+                      <v-table class="month-table" density="comfortable" hover>
+                        <thead>
+                          <tr>
+                            <th scope="col">
+                              Project
+                            </th>
+                            <th scope="col">
+                              Dates
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <tr v-for="row in block.rows" :key="row.project">
+                            <td>{{ row.project }}</td>
+                            <td>
+                              <span
+                                v-for="d in row.dates"
+                                :key="d"
+                                class="date-pill"
+                              >
+                                {{ formatShortDate(d) }}
+                              </span>
+                            </td>
+                          </tr>
+                        </tbody>
+                      </v-table>
+                    </div>
                   </v-expansion-panel-text>
                 </v-expansion-panel>
               </v-expansion-panels>
-              <p v-else class="text-body-2 text-medium-emphasis mb-0">
+              <p v-else class="empty-text mb-0">
                 Nothing scheduled in {{ year }} yet — add dates above.
               </p>
             </v-card>
@@ -251,13 +271,19 @@
         </v-row>
       </v-container>
 
-      <v-snackbar v-model="snack" location="bottom" rounded="lg" timeout="2200">
+      <v-snackbar
+        v-model="snack"
+        class="plan-snackbar"
+        location="bottom"
+        rounded="xl"
+        timeout="2400"
+      >
         {{ snackText }}
       </v-snackbar>
 
       <template #fallback>
-        <v-container class="py-16">
-          <p class="text-body-1">
+        <v-container class="planning-wrap planning-wrap--loading">
+          <p class="loading-text">
             Loading planner…
           </p>
         </v-container>
@@ -438,79 +464,113 @@ function onDayClick(date: string) {
 </script>
 
 <style scoped>
+/* Mobile-first, high-contrast light UI (readable on phones; cards lift off soft gray bg) */
 .planning-page {
+  --plan-bg: #f1f5f9;
+  --plan-text: #0f172a;
+  --plan-muted: #475569;
+  --plan-hint: #64748b;
+  --plan-border: #e2e8f0;
+  --plan-surface: #ffffff;
+  --plan-accent: #2563eb;
+  --plan-accent-soft: #dbeafe;
+  --plan-work: #1d4ed8;
+
   min-height: 100vh;
   min-height: 100dvh;
-  color: #e7edff;
-  background:
-    radial-gradient(circle at 15% 20%, rgba(80, 140, 255, 0.35), transparent 50%),
-    radial-gradient(circle at 90% 80%, rgba(44, 80, 200, 0.45), transparent 55%),
-    #050814;
+  color: var(--plan-text);
+  background: var(--plan-bg);
+  color-scheme: light;
+  -webkit-font-smoothing: antialiased;
+  font-size: 1rem;
+  line-height: 1.55;
 }
 
 .planning-nav {
-  padding: 1rem 1.25rem 0;
+  padding: clamp(12px, 4vw, 18px) clamp(12px, 4vw, 20px) 0;
+  max-width: 1200px;
+  margin-inline: auto;
 }
 
 .planning-nav__link {
-  color: rgba(231, 237, 255, 0.85);
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 4px;
+  color: var(--plan-accent);
   text-decoration: none;
-  font-size: 0.95rem;
+  font-size: 0.9375rem;
+  font-weight: 600;
 }
 
-.planning-nav__link:hover {
+.planning-nav__link:hover,
+.planning-nav__link:focus-visible {
   text-decoration: underline;
 }
 
 .planning-wrap {
   max-width: 1200px;
+  margin-inline: auto;
+  padding-inline: clamp(14px, 5vw, 28px);
+  padding-block: clamp(18px, 5vw, 40px);
+}
+
+.planning-wrap--loading {
+  padding-block: clamp(48px, 15vw, 96px);
+}
+
+.loading-text {
+  margin: 0;
+  font-size: 1.0625rem;
+  color: var(--plan-muted);
+  text-align: center;
+}
+
+.planning-head {
+  margin-bottom: clamp(20px, 5vw, 32px);
 }
 
 .planning-eyebrow {
-  letter-spacing: 0.08em;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
-  font-size: 0.72rem;
-  opacity: 0.75;
-  margin-bottom: 0.35rem;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  color: var(--plan-hint);
+  margin: 0 0 0.4rem;
 }
 
 .planning-title {
-  font-size: clamp(1.75rem, 4vw, 2.35rem);
-  font-weight: 650;
-  margin: 0 0 0.35rem;
+  font-size: clamp(1.65rem, 6vw, 2.15rem);
+  font-weight: 750;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+  margin: 0 0 0.5rem;
+  color: var(--plan-text);
 }
 
 .planning-sub {
-  opacity: 0.78;
-  max-width: 52ch;
   margin: 0;
+  max-width: 52ch;
+  font-size: clamp(0.9375rem, 3.5vw, 1.0625rem);
+  color: var(--plan-muted);
 }
 
-.date-add-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  align-items: center;
+.controls-row {
+  margin-bottom: clamp(18px, 4vw, 28px) !important;
 }
 
-.native-date {
-  flex: 1;
-  min-width: 160px;
-  padding: 12px 14px;
-  border-radius: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  background: rgba(0, 0, 0, 0.35);
-  color: #e7edff;
-  font: inherit;
-}
-
-.date-chips {
-  line-height: 1.8;
+.help-text,
+.stat-hint,
+.empty-text {
+  font-size: 0.875rem;
+  color: var(--plan-muted);
 }
 
 .stat-sheet {
-  background: rgba(255, 255, 255, 0.04) !important;
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  height: 100%;
+  background: var(--plan-surface) !important;
+  border: 1px solid var(--plan-border) !important;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06);
 }
 
 .stat-line {
@@ -520,58 +580,194 @@ function onDayClick(date: string) {
   gap: 1rem;
 }
 
+.stat-label {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--plan-muted);
+}
+
 .stat-num {
-  font-size: 1.35rem;
-  font-weight: 650;
+  font-size: clamp(1.2rem, 4vw, 1.45rem);
+  font-weight: 750;
+  font-variant-numeric: tabular-nums;
+  color: var(--plan-text);
+}
+
+.surface-card {
+  background: var(--plan-surface) !important;
+  border: 1px solid var(--plan-border) !important;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06);
+}
+
+.card-title {
+  font-size: 1.125rem !important;
+  font-weight: 700 !important;
+  color: var(--plan-text) !important;
+  letter-spacing: -0.01em;
+}
+
+.date-add-row {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+@media (min-width: 380px) {
+  .date-add-row {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: stretch;
+  }
+
+  .native-date {
+    flex: 1;
+    min-width: min(100%, 200px);
+  }
+
+  .date-add-row .touch-btn {
+    flex-shrink: 0;
+    align-self: stretch;
+  }
+}
+
+.native-date {
+  width: 100%;
+  min-height: 48px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--plan-border);
+  background: var(--plan-surface);
+  color: var(--plan-text);
+  font: inherit;
+  font-size: 1rem;
+}
+
+.native-date:focus-visible {
+  outline: 2px solid var(--plan-accent);
+  outline-offset: 2px;
+}
+
+.touch-btn {
+  min-height: 48px !important;
+  font-weight: 650 !important;
+}
+
+.touch-icon {
+  color: var(--plan-muted) !important;
+}
+
+.date-chips {
+  line-height: 2;
+}
+
+.entry-list {
+  padding: 0 !important;
+}
+
+.entry-item {
+  border: 1px solid transparent;
+}
+
+.entry-item + .entry-item {
+  margin-top: 8px;
+}
+
+.entry-title {
+  font-size: 1rem !important;
+  font-weight: 650 !important;
+  color: var(--plan-text) !important;
+  line-height: 1.35 !important;
+}
+
+.entry-sub {
+  margin-top: 4px !important;
+  font-size: 0.875rem !important;
+  color: var(--plan-muted) !important;
+  opacity: 1 !important;
+  white-space: normal !important;
 }
 
 .year-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(148px, 1fr));
-  gap: 1rem;
+  grid-template-columns: 1fr;
+  gap: clamp(10px, 3vw, 14px);
+}
+
+@media (min-width: 420px) {
+  .year-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 720px) {
+  .year-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1024px) {
+  .year-grid {
+    grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
+  }
 }
 
 .mini-month {
-  padding: 0.5rem 0.35rem 0.65rem;
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  padding: 10px 8px 12px;
+  border-radius: 14px;
+  background: #f8fafc;
+  border: 1px solid var(--plan-border);
 }
 
 .mini-month__title {
-  font-size: 0.75rem;
-  font-weight: 600;
-  margin-bottom: 0.35rem;
+  font-size: 0.8125rem;
+  font-weight: 750;
+  margin-bottom: 8px;
   text-align: center;
-  opacity: 0.9;
+  color: var(--plan-text);
 }
 
 .weekday-row {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
-  gap: 2px;
-  margin-bottom: 4px;
-  font-size: 0.58rem;
-  opacity: 0.55;
+  gap: 4px;
+  margin-bottom: 6px;
+  font-size: 0.65rem;
+  font-weight: 700;
+  color: var(--plan-hint);
   text-align: center;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 
 .day-grid {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
-  gap: 3px;
+  gap: 4px;
 }
 
 .day-cell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 36px;
   aspect-ratio: 1;
   border: none;
-  border-radius: 8px;
-  font-size: 0.65rem;
+  border-radius: 10px;
+  font-size: 0.75rem;
+  font-weight: 600;
   padding: 0;
   cursor: default;
-  background: transparent;
-  color: inherit;
+  background: var(--plan-surface);
+  color: var(--plan-text);
+  border: 1px solid transparent;
   line-height: 1;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .day-cell:not(:disabled):hover {
+    background: #eef2ff;
+    border-color: #c7d2fe;
+  }
 }
 
 .day-cell--pad {
@@ -579,17 +775,121 @@ function onDayClick(date: string) {
   pointer-events: none;
 }
 
-.day-cell:not(:disabled):hover {
-  background: rgba(255, 255, 255, 0.06);
-}
-
 .day-cell--work {
-  background: rgba(86, 142, 255, 0.45);
-  font-weight: 700;
+  background: var(--plan-accent-soft);
+  color: var(--plan-work);
+  border-color: #93c5fd;
+  font-weight: 800;
   cursor: pointer;
 }
 
 .day-cell:not(.day-cell--pad):not(:disabled) {
   cursor: pointer;
+}
+
+@media (hover: none) {
+  .day-cell:not(.day-cell--pad) {
+    min-height: 40px;
+  }
+}
+
+.month-panels {
+  border: none !important;
+  box-shadow: none !important;
+  background: transparent !important;
+}
+
+.panel-title {
+  font-weight: 650 !important;
+  color: var(--plan-text) !important;
+  padding-block: 14px !important;
+  min-height: 52px !important;
+}
+
+.panel-meta {
+  margin-left: 8px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--plan-muted);
+}
+
+.panel-body {
+  padding-inline: 0 !important;
+}
+
+.table-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  margin: 0 -4px;
+  padding: 0 4px;
+}
+
+.month-table {
+  min-width: 100%;
+  font-size: 0.9375rem;
+}
+
+.month-table :deep(th),
+.month-table :deep(td) {
+  color: var(--plan-text) !important;
+  border-color: var(--plan-border) !important;
+}
+
+.month-table :deep(th) {
+  font-weight: 700 !important;
+  font-size: 0.8125rem !important;
+}
+
+.date-pill {
+  display: inline-block;
+  margin: 2px 6px 2px 0;
+  padding: 2px 0;
+  white-space: nowrap;
+}
+
+/* Vuetify field readability on light cards */
+.plan-field :deep(.v-field__outline) {
+  --v-field-border-opacity: 1;
+}
+
+.plan-field :deep(.v-label) {
+  color: var(--plan-muted) !important;
+  opacity: 1 !important;
+}
+
+.plan-field :deep(input),
+.plan-field :deep(textarea),
+.plan-field :deep(.v-select__selection-text) {
+  color: var(--plan-text) !important;
+  font-size: 1rem !important;
+}
+
+.planning-page :deep(.plan-field .v-input__details) {
+  padding-inline: 2px;
+}
+
+.plan-field :deep(.v-messages__message) {
+  color: var(--plan-hint) !important;
+  opacity: 1 !important;
+}
+
+.planning-page :deep(.v-expansion-panel) {
+  border: 1px solid var(--plan-border) !important;
+  border-radius: 14px !important;
+  overflow: hidden;
+  margin-bottom: 10px !important;
+  background: var(--plan-surface) !important;
+}
+
+.planning-page :deep(.v-expansion-panel-title__overlay) {
+  opacity: 0 !important;
+}
+
+.plan-snackbar :deep(.v-snackbar__wrapper) {
+  color: var(--plan-text);
+}
+
+.plan-snackbar :deep(.v-snackbar__content) {
+  font-weight: 550;
 }
 </style>
