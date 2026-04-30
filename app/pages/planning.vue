@@ -247,7 +247,7 @@
                       icon="mdi-delete-outline"
                       size="large"
                       variant="text"
-                      @click.stop="removeEntry(e.id)"
+                      @click.stop="openDeleteJobConfirm(e)"
                     />
                   </template>
                 </v-list-item>
@@ -437,6 +437,46 @@
         </v-card>
       </v-dialog>
 
+      <v-dialog
+        v-model="deleteJobConfirmOpen"
+        class="delete-job-dialog"
+        max-width="360"
+        scroll-strategy="close"
+      >
+        <v-card
+          class="delete-job-card surface-card draft-bubble-theme pa-4"
+          rounded="xl"
+          variant="flat"
+        >
+          <v-card-title class="delete-job-card__title px-0 pt-0 pb-3">
+            Remove job?
+          </v-card-title>
+          <v-card-text class="px-0 pb-2 pt-0">
+            <p v-if="deleteJobPending" class="mb-0">
+              Remove “{{ deleteJobPending.project }}” and all dates assigned to it? This cannot be undone automatically.
+            </p>
+          </v-card-text>
+          <v-card-actions class="delete-job-actions px-0 pb-0 pt-2">
+            <v-spacer />
+            <v-btn
+              rounded="xl"
+              variant="text"
+              @click="deleteJobConfirmOpen = false"
+            >
+              Cancel
+            </v-btn>
+            <v-btn
+              color="error"
+              rounded="xl"
+              variant="flat"
+              @click="confirmDeleteJob"
+            >
+              Remove
+            </v-btn>
+          </v-card-actions>
+        </v-card>
+      </v-dialog>
+
       <v-snackbar
         v-model="snack"
         class="plan-snackbar"
@@ -558,6 +598,24 @@ const editJobOpen = ref(false);
 const editJobId = ref<string | null>(null);
 const editJobProject = ref("");
 const editJobDatesText = ref("");
+
+const deleteJobConfirmOpen = ref(false);
+const deleteJobPending = ref<JobEntry | null>(null);
+
+function openDeleteJobConfirm(entry: JobEntry) {
+  deleteJobPending.value = entry;
+  deleteJobConfirmOpen.value = true;
+}
+
+function confirmDeleteJob() {
+  const id = deleteJobPending.value?.id;
+  deleteJobConfirmOpen.value = false;
+  if (id) removeEntry(id);
+}
+
+watch(deleteJobConfirmOpen, (open) => {
+  if (!open) deleteJobPending.value = null;
+});
 
 watch(comfortSettingsOpen, (open) => {
   if (open) {
