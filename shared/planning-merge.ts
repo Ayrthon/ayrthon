@@ -1,10 +1,14 @@
 import type { JobEntry, StoredState } from "./planning-state";
+import {
+  mergeDayLists,
+  sanitizeJobDays,
+} from "./planning-state";
 
-/** Union dates per job id so concurrent devices do not overwrite each other's rows.
+/** Union days per job id so concurrent devices do not overwrite each other's rows.
  *
  * Jobs present only on the server copy are kept (another browser saved first).
  * Jobs present only in this PUT are kept (this browser added before pulling).
- * Same id → union date lists + prefer non-empty project name.
+ * Same id → union day lists (same calendar day → max weight) + prefer non-empty project name.
  *
  * Deletes are handled separately via `removedJobIds` in {@link mergePlannerEntriesWithRemovals}
  * (union-merge alone cannot drop rows).
@@ -17,28 +21,28 @@ export function mergeJobEntries(remote: JobEntry[], local: JobEntry[]): JobEntry
     map.set(e.id, {
       id: e.id,
       project: typeof e.project === "string" ? e.project : "",
-      dates: Array.isArray(e.dates) ? [...e.dates] : [],
+      days: sanitizeJobDays(Array.isArray(e.days) ? e.days : []),
     });
   }
 
   for (const e of local) {
     if (!e?.id) continue;
     const prev = map.get(e.id);
-    const datesLocal = Array.isArray(e.dates) ? e.dates : [];
+    const daysLocal = sanitizeJobDays(Array.isArray(e.days) ? e.days : []);
     if (!prev) {
       map.set(e.id, {
         id: e.id,
         project: typeof e.project === "string" ? e.project.trim() : "",
-        dates: [...new Set(datesLocal)].sort(),
+        days: daysLocal,
       });
       continue;
     }
-    const mergedDates = [...new Set([...prev.dates, ...datesLocal])].sort();
+    const mergedDays = mergeDayLists(prev.days, daysLocal);
     const project =
       typeof e.project === "string" && e.project.trim()
         ? e.project.trim()
         : prev.project;
-    map.set(e.id, { id: e.id, project, dates: mergedDates });
+    map.set(e.id, { id: e.id, project, days: mergedDays });
   }
 
   return [...map.values()].sort((a, b) => {
@@ -115,7 +119,7 @@ function normalizeJobEntry(e: JobEntry): JobEntry {
   return {
     id: e.id,
     project: typeof e.project === "string" ? e.project : "",
-    dates: [...new Set(Array.isArray(e.dates) ? e.dates : [])].sort(),
+    days: sanitizeJobDays(Array.isArray(e.days) ? e.days : []),
   };
 }
 
@@ -191,26 +195,26 @@ function mergeJobPair(
     return { entry: normalizeJobEntry(ie!), stamp: it };
   }
 
-  /** Remote dialog strictly newer — union dates so a stale tab without a stamp cannot wipe adds. */
+  /** Remote dialog strictly newer — union days so a stale tab without a stamp cannot wipe adds. */
   if (rm != null && (im == null || rm > im)) {
-    const mergedDates = [...new Set([...re!.dates, ...ie!.dates])].sort();
+    const mergedDays = mergeDayLists(re!.days, ie!.days);
     const project =
       typeof ie!.project === "string" && ie!.project.trim()
         ? ie!.project.trim()
         : re!.project;
     return {
-      entry: { id: re!.id, project, dates: mergedDates },
+      entry: { id: re!.id, project, days: mergedDays },
       stamp: rt,
     };
   }
 
-  const mergedDates = [...new Set([...re!.dates, ...ie!.dates])].sort();
+  const mergedDays = mergeDayLists(re!.days, ie!.days);
   const project =
     typeof ie!.project === "string" && ie!.project.trim()
       ? ie!.project.trim()
       : re!.project;
   return {
-    entry: { id: re!.id, project, dates: mergedDates },
+    entry: { id: re!.id, project, days: mergedDays },
     stamp: pickNewerJobStamp(rt, it),
   };
 }

@@ -1,11 +1,15 @@
 import type { ComputedRef, Ref } from "vue";
-import type { JobEntry, StoredState } from "~~/shared/planning-state";
+import type { JobDay, JobEntry, StoredState } from "~~/shared/planning-state";
 import {
+  normalizeJobEntryRaw,
   parseComfortTargetFromStored,
   parseDayRateFromStored,
+  sanitizeJobDays,
 } from "~~/shared/planning-state";
 
-export type { JobEntry, StoredState } from "~~/shared/planning-state";
+export type { JobDay, JobEntry, StoredState } from "~~/shared/planning-state";
+export type { DayWeight } from "~~/shared/planning-state";
+export { jobDatesStrings, sanitizeJobDays, weightOnJobDay } from "~~/shared/planning-state";
 
 /** Must be passed from `planning.vue`: Vue inject does not see `provide()` from the same component. */
 export type PlanningSyncRef = Ref<boolean> | ComputedRef<boolean>;
@@ -110,13 +114,9 @@ export function useJobYearPlanner(syncOverride?: PlanningSyncRef) {
         ?? parseDayRateFromStored(raw["day_rate"]);
       if (dr !== undefined) dayRate.value = dr;
       if (Array.isArray(data.entries)) {
-        entries.value = data.entries.filter(
-          (e) =>
-            e
-            && typeof e.id === "string"
-            && typeof e.project === "string"
-            && Array.isArray(e.dates),
-        );
+        entries.value = data.entries
+          .map((e) => normalizeJobEntryRaw(e))
+          .filter((e): e is JobEntry => e !== null);
       }
       const rm = raw.removedJobIds ?? raw["removed_job_ids"];
       if (Array.isArray(rm)) {
@@ -316,13 +316,13 @@ export function useJobYearPlanner(syncOverride?: PlanningSyncRef) {
   const uniqueDaysInSelectedYear = computed(() => {
     const y = year.value;
     const prefix = `${y}-`;
-    const set = new Set<string>();
+    let sum = 0;
     for (const e of entries.value) {
-      for (const d of e.dates) {
-        if (typeof d === "string" && d.startsWith(prefix)) set.add(d);
+      for (const { date, weight } of e.days) {
+        if (typeof date === "string" && date.startsWith(prefix)) sum += weight;
       }
     }
-    return set.size;
+    return sum;
   });
 
   const datesByDay = computed(() => {
@@ -330,11 +330,11 @@ export function useJobYearPlanner(syncOverride?: PlanningSyncRef) {
     const prefix = `${y}-`;
     const map = new Map<string, JobEntry[]>();
     for (const e of entries.value) {
-      for (const d of e.dates) {
-        if (typeof d === "string" && d.startsWith(prefix)) {
-          const list = map.get(d) ?? [];
+      for (const { date } of e.days) {
+        if (typeof date === "string" && date.startsWith(prefix)) {
+          const list = map.get(date) ?? [];
           list.push(e);
-          map.set(d, list);
+          map.set(date, list);
         }
       }
     }
@@ -355,12 +355,14 @@ export function useJobYearPlanner(syncOverride?: PlanningSyncRef) {
     for (let m = 0; m < 12; m++) {
       const seen = new Map<string, Set<string>>();
       for (const e of entries.value) {
-        const inMonth = e.dates.filter((d) => {
-          if (!d.startsWith(`${y}-`)) return false;
-          const parts = d.split("-");
-          const mi = Number(parts[1]) - 1;
-          return mi === m;
-        });
+        const inMonth = e.days
+          .map((d) => d.date)
+          .filter((d) => {
+            if (!d.startsWith(`${y}-`)) return false;
+            const parts = d.split("-");
+            const mi = Number(parts[1]) - 1;
+            return mi === m;
+          });
         if (!inMonth.length) continue;
         if (!seen.has(e.project)) seen.set(e.project, new Set());
         const ps = seen.get(e.project)!;
@@ -380,15 +382,17 @@ export function useJobYearPlanner(syncOverride?: PlanningSyncRef) {
     return months;
   });
 
-  function addEntry(project: string, dates: string[]) {
+  function addEntry(project: string, days: JobDay[]) {
     const clean = project.trim();
-    if (!clean || !dates.length) return;
-    const normalized = [...new Set(dates.map(toIsoDateString))].sort();
+    const normalized = sanitizeJobDays(
+      days.map((d) => ({ date: toIsoDateString(d.date), weight: d.weight })),
+    );
+    if (!clean || !normalized.length) return;
     const id = crypto.randomUUID();
     entries.value.push({
       id,
       project: clean,
-      dates: normalized,
+      days: normalized,
     });
     jobEditedAt.value = {
       ...jobEditedAt.value,
@@ -407,15 +411,17 @@ export function useJobYearPlanner(syncOverride?: PlanningSyncRef) {
     }
   }
 
-  /** Replace project name and/or dates for an existing job (list editor). */
-  function updateEntry(id: string, patch: { project: string; dates: string[] }) {
+  /** Replace project name and/or days for an existing job (list editor). */
+  function updateEntry(id: string, patch: { project: string; days: JobDay[] }) {
     const clean = patch.project.trim();
-    if (!clean || !patch.dates.length) return false;
-    const normalized = [...new Set(patch.dates.map(toIsoDateString))].sort();
+    const normalized = sanitizeJobDays(
+      patch.days.map((d) => ({ date: toIsoDateString(d.date), weight: d.weight })),
+    );
+    if (!clean || !normalized.length) return false;
     const idx = entries.value.findIndex((e) => e.id === id);
     if (idx === -1) return false;
     entries.value = entries.value.map((e, i) =>
-      i === idx ? { ...e, project: clean, dates: normalized } : e,
+      i === idx ? { ...e, project: clean, days: normalized } : e,
     );
     jobEditedAt.value = {
       ...jobEditedAt.value,
@@ -440,6 +446,22 @@ export function useJobYearPlanner(syncOverride?: PlanningSyncRef) {
     settingsEditedAt.value = new Date().toISOString();
   }
 
+  /** First date in `days` already assigned to another job (any weight). Omit job id when editing that job. */
+  function firstOccupiedPlanningDate(
+    days: JobDay[],
+    excludeJobId?: string,
+  ): string | undefined {
+    const occ = new Set<string>();
+    for (const e of entries.value) {
+      if (excludeJobId && e.id === excludeJobId) continue;
+      for (const { date } of e.days) occ.add(date);
+    }
+    for (const { date } of days) {
+      if (occ.has(date)) return date;
+    }
+    return undefined;
+  }
+
   return {
     year,
     comfortTarget,
@@ -459,6 +481,7 @@ export function useJobYearPlanner(syncOverride?: PlanningSyncRef) {
     markPlanningSettingsSaved,
     flushSave,
     toIsoDateString,
+    firstOccupiedPlanningDate,
   };
 }
 

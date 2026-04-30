@@ -200,7 +200,7 @@
                       @click="cell.kind === 'day' && cell.date ? onCalendarDayClick(cell.date) : null"
                     >
                       <template v-if="cell.kind === 'day'">
-                        {{ cell.dayNum }}
+                        <span class="day-cell__num">{{ cell.dayNum }}</span>
                       </template>
                     </button>
                   </div>
@@ -235,7 +235,7 @@
                         {{ e.project }}
                       </v-list-item-title>
                       <v-list-item-subtitle class="entry-sub">
-                        {{ summarizeDates(e.dates) }}
+                        {{ summarizeJobDays(e.days) }}
                       </v-list-item-subtitle>
                       <template #append>
                         <v-btn
@@ -282,7 +282,7 @@
                         {{ e.project }}
                       </v-list-item-title>
                       <v-list-item-subtitle class="entry-sub">
-                        {{ summarizeDates(e.dates) }}
+                        {{ summarizeJobDays(e.days) }}
                       </v-list-item-subtitle>
                       <template #append>
                         <v-btn
@@ -332,7 +332,7 @@
                         {{ e.project }}
                       </v-list-item-title>
                       <v-list-item-subtitle class="entry-sub">
-                        {{ summarizeDates(e.dates) }}
+                        {{ summarizeJobDays(e.days) }}
                       </v-list-item-subtitle>
                       <template #append>
                         <v-btn
@@ -367,7 +367,7 @@
       <Teleport to="body">
         <transition name="draft-bubble">
           <div
-            v-if="draftDates.length"
+            v-if="draftDatesSorted.length"
             class="draft-bubble-theme draft-bubble-anchor"
           >
             <div
@@ -380,7 +380,7 @@
                   <div id="draft-bubble-title" class="draft-bubble__title">
                     New job
                   </div>
-                  <span class="draft-bubble__meta">{{ draftDates.length }} day<span v-if="draftDates.length !== 1">s</span> selected</span>
+                  <span class="draft-bubble__meta">{{ draftUnitsLabel }}</span>
                 </div>
                 <v-btn
                   aria-label="Discard selection"
@@ -453,7 +453,7 @@
               density="comfortable"
               hide-details="auto"
               label="Day rate (per logged day)"
-              hint="Leave at 0 to hide revenue. Estimate = distinct logged days in the selected year × rate."
+              hint="Leave at 0 to hide revenue. Estimate = logged day-units in the selected year (full = 1, half = 0.5) × rate."
               min="0"
               persistent-hint
               step="0.01"
@@ -513,7 +513,7 @@
               class="plan-field mt-3"
               density="comfortable"
               hide-details="auto"
-              hint="One calendar date per line: YYYY-MM-DD. You can also separate dates with commas or semicolons."
+              hint="One date per line (YYYY-MM-DD). Add a half day with “ (½)” or “ 0.5” on the line. One job per calendar day."
               label="Work dates"
               persistent-hint
               rows="5"
@@ -605,7 +605,16 @@
 </template>
 
 <script setup lang="ts">
-import { toIsoDateString, type JobEntry } from "~/composables/useJobYearPlanner";
+import {
+  toIsoDateString,
+  type DayWeight,
+  type JobDay,
+  type JobEntry,
+  jobDatesStrings,
+  sanitizeJobDays,
+  weightOnJobDay,
+} from "~/composables/useJobYearPlanner";
+import { sortJobDays } from "~~/shared/planning-state";
 
 useHead({
   title: "Planning · Ayrthon",
@@ -642,6 +651,7 @@ const {
   setDayRate,
   markPlanningSettingsSaved,
   flushSave,
+  firstOccupiedPlanningDate,
 } = useJobYearPlanner(planningSyncEnabled);
 
 const syncRefreshing = ref(false);
@@ -673,7 +683,17 @@ const yearModel = computed({
 });
 
 const formProject = ref("");
-const draftDates = ref<string[]>([]);
+const draftDayMap = ref<Record<string, DayWeight>>({});
+const draftDatesSorted = computed(() => Object.keys(draftDayMap.value).sort());
+const draftDayUnits = computed(() =>
+  Object.values(draftDayMap.value).reduce((sum, w) => sum + w, 0),
+);
+const draftUnitsLabel = computed(() => {
+  const n = draftDayUnits.value;
+  const word = n === 1 ? "day" : "days";
+  const num = Number.isInteger(n) ? String(n) : n.toFixed(1).replace(/\.0$/, "");
+  return `${num} ${word} selected`;
+});
 /** Click-drag on calendar: add draft dates from empty cells, or remove when starting on selected cells. */
 const draftPaintActive = ref(false);
 const draftPaintDragIntent = ref(false);
@@ -684,13 +704,17 @@ let draftPaintSubtractMode = false;
 /** Touch empty day (Samsung-style): still finger → tap selects; dominant vertical move → scroll, no select; else → drag multi-select. */
 const CAL_DRAG_SLOP_PX = 14;
 const CAL_SCROLL_VS_HORIZONTAL = 1.12;
-type TouchEmptyDayState = {
+const CAL_LONG_PRESS_MS = 480;
+type EmptyDayGestureState = {
   iso: string;
   pointerId: number;
   x0: number;
   y0: number;
+  pointerType: string;
+  longPressTimer: ReturnType<typeof setTimeout> | null;
+  longPressFired: boolean;
 };
-let touchEmptyDay: TouchEmptyDayState | null = null;
+let emptyDayGesture: EmptyDayGestureState | null = null;
 /** Debounce duplicate toggle from pointerup + click firing close together. */
 let lastDraftToggleAt = 0;
 let lastDraftToggleIso = "";
@@ -788,15 +812,17 @@ const progressPct = computed(() => {
 const progressNote = computed(() => {
   const u = uniqueDaysInSelectedYear.value;
   const t = comfortTarget.value;
+  const fmt = (n: number) =>
+    n === Math.round(n) ? String(Math.round(n)) : n.toFixed(1).replace(/\.0$/, "");
   if (u < t) {
     const diff = t - u;
-    return `${diff} more distinct work day${diff === 1 ? "" : "s"} to reach comfort.`;
+    return `${fmt(diff)} more day-units to reach comfort.`;
   }
   if (u === t) {
     return "Met comfort target for this year.";
   }
   const over = u - t;
-  return `${over} distinct work day${over === 1 ? "" : "s"} above comfort target for this year.`;
+  return `${fmt(over)} day-unit${over === 1 ? "" : "s"} above comfort target for this year.`;
 });
 
 /** Latest work day for a job; open until this day is before today (ISO YYYY-MM-DD compares lexicographically). */
@@ -814,12 +840,12 @@ function nextWorkDayOnOrAfter(dates: string[], today: string): string | null {
 }
 
 function compareOpenJobs(a: JobEntry, b: JobEntry, today: string): number {
-  const na = nextWorkDayOnOrAfter(a.dates, today);
-  const nb = nextWorkDayOnOrAfter(b.dates, today);
+  const na = nextWorkDayOnOrAfter(jobDatesStrings(a), today);
+  const nb = nextWorkDayOnOrAfter(jobDatesStrings(b), today);
   const byNext = (na ?? "\uffff").localeCompare(nb ?? "\uffff");
   if (byNext !== 0) return byNext;
-  const ma = minDate(a.dates);
-  const mb = minDate(b.dates);
+  const ma = minDate(jobDatesStrings(a));
+  const mb = minDate(jobDatesStrings(b));
   const byFirst = (ma ?? "").localeCompare(mb ?? "");
   if (byFirst !== 0) return byFirst;
   return a.project.localeCompare(b.project);
@@ -831,8 +857,8 @@ function sortOpenJobs(open: JobEntry[], today: string): JobEntry[] {
 
 function sortClosedJobs(closed: JobEntry[]): JobEntry[] {
   return [...closed].sort((a, b) => {
-    const la = maxDate(a.dates);
-    const lb = maxDate(b.dates);
+    const la = maxDate(jobDatesStrings(a));
+    const lb = maxDate(jobDatesStrings(b));
     const byLastEnded = (lb ?? "").localeCompare(la ?? "");
     if (byLastEnded !== 0) return byLastEnded;
     return a.project.localeCompare(b.project);
@@ -840,7 +866,7 @@ function sortClosedJobs(closed: JobEntry[]): JobEntry[] {
 }
 
 function isJobOpenForToday(entry: JobEntry, today: string): boolean {
-  const last = maxDate(entry.dates);
+  const last = maxDate(jobDatesStrings(entry));
   if (!last) return true;
   return last >= today;
 }
@@ -852,13 +878,15 @@ const entriesUpNextSorted = computed(() => {
 
   let minNext: string | null = null;
   for (const e of open) {
-    const n = nextWorkDayOnOrAfter(e.dates, t);
+    const n = nextWorkDayOnOrAfter(jobDatesStrings(e), t);
     if (!n) continue;
     if (minNext === null || n < minNext) minNext = n;
   }
   if (minNext === null) return [];
 
-  const tied = open.filter((e) => nextWorkDayOnOrAfter(e.dates, t) === minNext);
+  const tied = open.filter(
+    (e) => nextWorkDayOnOrAfter(jobDatesStrings(e), t) === minNext,
+  );
   return sortOpenJobs(tied, t);
 });
 
@@ -963,57 +991,120 @@ function formatRunForJobList(run: string[], omitYear: boolean): string {
   return `${formatIsoForJobList(first, omitYear)}\u00a0–\u00a0${formatIsoForJobList(last, omitYear)}`;
 }
 
-function summarizeDates(dates: string[]): string {
-  const sorted = [...new Set(dates)].sort();
+function formatIsoForJobListWeighted(
+  iso: string,
+  omitYear: boolean,
+  weight: DayWeight,
+): string {
+  const base = formatIsoForJobList(iso, omitYear);
+  return weight === 0.5 ? `${base}\u00a0½` : base;
+}
+
+function weightForIsoInJob(days: JobDay[], iso: string): DayWeight {
+  return days.find((d) => d.date === iso)?.weight ?? 1;
+}
+
+/** One contiguous run → compact label; mixed full/half inside a run falls back to per-day labels. */
+function formatRunForJobListWeighted(
+  run: string[],
+  omitYear: boolean,
+  days: JobDay[],
+): string {
+  const wAt = (iso: string) => weightForIsoInJob(days, iso);
+  if (run.length === 1) {
+    return formatIsoForJobListWeighted(run[0]!, omitYear, wAt(run[0]!));
+  }
+  const w0 = wAt(run[0]!);
+  const allSame = run.every((iso) => wAt(iso) === w0);
+  if (allSame && w0 === 1) return formatRunForJobList(run, omitYear);
+  if (allSame && w0 === 0.5) {
+    return `${formatRunForJobList(run, omitYear)}\u00a0(½)`;
+  }
+  return run.map((iso) => formatIsoForJobListWeighted(iso, omitYear, wAt(iso))).join(" · ");
+}
+
+function summarizeJobDays(days: JobDay[]): string {
+  const sorted = sortJobDays(days);
   if (!sorted.length) return "";
 
-  const years = new Set(sorted.map((iso) => iso.slice(0, 4)));
+  const dateList = sorted.map((d) => d.date);
+  const years = new Set(dateList.map((iso) => iso.slice(0, 4)));
   const omitYear = years.size === 1;
 
-  const runs = groupSortedIntoRuns(sorted);
-  const segments = runs.map((run) => formatRunForJobList(run, omitYear));
+  const runs = groupSortedIntoRuns(dateList);
+  const segments = runs.map((run) => formatRunForJobListWeighted(run, omitYear, sorted));
 
   if (segments.length <= 3) {
     return segments.join(" · ");
   }
 
   const shown = segments.slice(0, 3).join(" · ");
-  const shownDays = runs.slice(0, 3).reduce((n, r) => n + r.length, 0);
-  const rest = sorted.length - shownDays;
+  const shownUnits = runs
+    .slice(0, 3)
+    .reduce(
+      (n, run) =>
+        n + run.reduce((s, iso) => s + weightForIsoInJob(sorted, iso), 0),
+      0,
+    );
+  const totalUnits = sorted.reduce((s, d) => s + d.weight, 0);
+  const rest = totalUnits - shownUnits;
   const dayWord = rest === 1 ? "day" : "days";
-  return `${shown} · +${rest}\u00a0more ${dayWord}`;
+  return `${shown} · +${rest === Math.round(rest) ? rest : rest.toFixed(1)}\u00a0more ${dayWord}`;
 }
 
 function submitEntry() {
-  const dates = [...draftDates.value].sort();
-  if (!formProject.value.trim() || dates.length === 0) {
+  const days = sortJobDays(
+    draftDatesSorted.value.map((date) => ({
+      date,
+      weight: draftDayMap.value[date] ?? 1,
+    })),
+  );
+  if (!formProject.value.trim() || days.length === 0) {
     snackText.value = "Add a project name and at least one date.";
     snack.value = true;
     return;
   }
-  addEntry(formProject.value, dates);
+  const clash = firstOccupiedPlanningDate(days);
+  if (clash) {
+    snackText.value = `${formatDayLabel(clash)} already has work logged; one job per day.`;
+    snack.value = true;
+    return;
+  }
+  addEntry(formProject.value, days);
   formProject.value = "";
-  draftDates.value = [];
+  draftDayMap.value = {};
   snackText.value = "Saved.";
   snack.value = true;
 }
 
-function parseJobDatesInput(raw: string): string[] {
-  const chunks = raw.split(/[\n,;]+/).flatMap((chunk) => chunk.split(/\s+/));
-  const seen = new Set<string>();
-  for (const part of chunks) {
-    const s = part.trim();
-    if (!s) continue;
-    const iso = toIsoDateString(s);
-    if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) seen.add(iso);
+/** One date per line; optional `½`, `(½)`, or trailing `0.5` for half days. */
+function parseJobDaysInput(raw: string): JobDay[] {
+  const map = new Map<string, DayWeight>();
+  for (const line of raw.split(/\n/)) {
+    let t = line.trim();
+    if (!t) continue;
+    const half =
+      /\(\s*½\s*\)|\(\s*0\.5\s*\)$/i.test(t)
+      || /\s+½\s*$/i.test(t)
+      || /\s+0\.5\s*$/i.test(t);
+    t = t
+      .replace(/\(\s*½\s*\)\s*$/i, "")
+      .replace(/\(\s*0\.5\s*\)\s*$/i, "")
+      .replace(/\s+½\s*$/i, "")
+      .replace(/\s+0\.5\s*$/i, "")
+      .trim();
+    const iso = toIsoDateString(t);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) map.set(iso, half ? 0.5 : 1);
   }
-  return [...seen].sort();
+  return sanitizeJobDays([...map.entries()].map(([date, weight]) => ({ date, weight })));
 }
 
 function openEditJob(e: JobEntry) {
   editJobId.value = e.id;
   editJobProject.value = e.project;
-  editJobDatesText.value = e.dates.join("\n");
+  editJobDatesText.value = e.days
+    .map((d) => (d.weight === 0.5 ? `${d.date} (½)` : d.date))
+    .join("\n");
   editJobOpen.value = true;
 }
 
@@ -1021,14 +1112,20 @@ function saveEditJob() {
   const id = editJobId.value;
   if (!id) return;
   const proj = editJobProject.value.trim();
-  const dates = parseJobDatesInput(editJobDatesText.value);
-  if (!proj || !dates.length) {
+  const days = parseJobDaysInput(editJobDatesText.value);
+  if (!proj || !days.length) {
     snackText.value =
       "Enter a project name and at least one valid date (YYYY-MM-DD).";
     snack.value = true;
     return;
   }
-  const ok = updateEntry(id, { project: proj, dates });
+  const clash = firstOccupiedPlanningDate(days, id);
+  if (clash) {
+    snackText.value = `${formatDayLabel(clash)} already has work on another job; one job per day.`;
+    snack.value = true;
+    return;
+  }
+  const ok = updateEntry(id, { project: proj, days });
   if (!ok) {
     snackText.value = "Could not update that job.";
     snack.value = true;
@@ -1041,7 +1138,7 @@ function saveEditJob() {
 }
 
 function clearDraft() {
-  draftDates.value = [];
+  draftDayMap.value = {};
   formProject.value = "";
 }
 
@@ -1076,12 +1173,15 @@ function gridIndexFromIso(iso: string, pad: number): number {
 }
 
 function isoDatesInMonthForEntry(
-  entry: { dates: string[] },
+  entry: JobEntry,
   y: number,
   monthIndex: number,
 ): string[] {
   const prefix = `${y}-${String(monthIndex + 1).padStart(2, "0")}-`;
-  return entry.dates.filter((d) => d.startsWith(prefix)).sort();
+  return entry.days
+    .filter((d) => d.date.startsWith(prefix))
+    .map((d) => d.date)
+    .sort();
 }
 
 function indicesFromIsoDates(isos: string[], pad: number): number[] {
@@ -1171,7 +1271,7 @@ function monthJobBlocks(y: number, monthIndex: number): CalendarSpanBlock[] {
   const pad = padForMonth(y, monthIndex);
   const out: CalendarSpanBlock[] = [];
   for (const entry of entries.value) {
-    if (entry.dates.length <= 1) continue;
+    if (entry.days.length <= 1) continue;
     const inMonth = isoDatesInMonthForEntry(entry, y, monthIndex);
     if (inMonth.length <= 1) continue;
     const indices = indicesFromIsoDates(inMonth, pad);
@@ -1194,10 +1294,12 @@ function monthJobBlocks(y: number, monthIndex: number): CalendarSpanBlock[] {
 }
 
 function monthDraftBlocks(y: number, monthIndex: number): CalendarSpanBlock[] {
-  if (draftDates.value.length <= 1) return [];
+  if (draftDatesSorted.value.length <= 1) return [];
   const pad = padForMonth(y, monthIndex);
   const prefix = `${y}-${String(monthIndex + 1).padStart(2, "0")}-`;
-  const inMonth = draftDates.value.filter((d) => d.startsWith(prefix)).sort();
+  const inMonth = draftDatesSorted.value
+    .filter((d) => d.startsWith(prefix))
+    .sort();
   if (inMonth.length <= 1) return [];
   const indices = indicesFromIsoDates(inMonth, pad);
   const runs = splitIntoConsecutiveRuns(indices);
@@ -1224,7 +1326,7 @@ function cellUsesJobBlock(iso: string, y: number, monthIndex: number): boolean {
   const pad = padForMonth(y, monthIndex);
   const idx = gridIndexFromIso(iso, pad);
   for (const entry of entries.value) {
-    if (entry.dates.length <= 1) continue;
+    if (entry.days.length <= 1) continue;
     const inMonth = isoDatesInMonthForEntry(entry, y, monthIndex);
     if (inMonth.length <= 1) continue;
     const indices = indicesFromIsoDates(inMonth, pad);
@@ -1237,11 +1339,13 @@ function cellUsesJobBlock(iso: string, y: number, monthIndex: number): boolean {
 }
 
 function cellUsesDraftBlock(iso: string, y: number, monthIndex: number): boolean {
-  if (draftDates.value.length <= 1) return false;
+  if (draftDatesSorted.value.length <= 1) return false;
   const pad = padForMonth(y, monthIndex);
   const idx = gridIndexFromIso(iso, pad);
   const prefix = `${y}-${String(monthIndex + 1).padStart(2, "0")}-`;
-  const inMonth = draftDates.value.filter((d) => d.startsWith(prefix)).sort();
+  const inMonth = draftDatesSorted.value
+    .filter((d) => d.startsWith(prefix))
+    .sort();
   if (inMonth.length <= 1) return false;
   const indices = indicesFromIsoDates(inMonth, pad);
   const runs = splitIntoConsecutiveRuns(indices);
@@ -1250,19 +1354,19 @@ function cellUsesDraftBlock(iso: string, y: number, monthIndex: number): boolean
 
 /** Stable key so all dates in the current draft multi-select hover-highlight together (even when not adjacent). */
 function draftSelectionHoverKey(): string | null {
-  if (draftDates.value.length <= 1) return null;
-  return `draft-selection:${[...draftDates.value].sort().join("|")}`;
+  if (draftDatesSorted.value.length <= 1) return null;
+  return `draft-selection:${draftDatesSorted.value.join("|")}`;
 }
 
 /** Hover/shading key for calendar cells: draft multi-select groups, or all days of a multi-date job (even if not adjacent). */
 function calendarRunHoverKey(iso: string): string | null {
-  if (draftDates.value.includes(iso) && draftDates.value.length > 1) {
+  if (iso in draftDayMap.value && draftDatesSorted.value.length > 1) {
     return draftSelectionHoverKey();
   }
 
   for (const entry of entries.value) {
-    if (entry.dates.length <= 1) continue;
-    if (!entry.dates.includes(iso)) continue;
+    if (entry.days.length <= 1) continue;
+    if (!jobDatesStrings(entry).includes(iso)) continue;
     return `job-entry:${entry.id}`;
   }
   return null;
@@ -1290,11 +1394,18 @@ function appendTodayMarker(cls: string[], iso: string) {
   if (iso === todayIso.value) cls.push("day-cell--today");
 }
 
+function workDayWeightOnCell(iso: string): DayWeight | undefined {
+  const jobs = datesByDay.value.get(iso);
+  if (!jobs?.length) return undefined;
+  return weightOnJobDay(jobs[0]!, iso);
+}
+
 function dayCellClasses(cell: Cell, y: number, monthIndex: number): string[] {
   if (cell.kind === "pad") return ["day-cell", "day-cell--pad"];
   const iso = cell.date;
   const flashJob = isoInHighlightedJobs(iso);
-  const draft = draftDates.value.includes(iso);
+  const draftW = draftDayMap.value[iso];
+  const draft = draftW !== undefined;
   const runKey = calendarRunHoverKey(iso);
   const runHoverActive =
     hoveredCalendarRunKey.value !== null &&
@@ -1303,6 +1414,7 @@ function dayCellClasses(cell: Cell, y: number, monthIndex: number): string[] {
 
   if (draft) {
     const cls = ["day-cell", "day-cell--draft"];
+    if (draftW === 0.5) cls.push("day-cell--half");
     if (cellUsesDraftBlock(iso, y, monthIndex)) {
       cls.push("day-cell--draft-on-block");
       if (runHoverActive) cls.push("day-cell--calendar-run-hover");
@@ -1317,6 +1429,7 @@ function dayCellClasses(cell: Cell, y: number, monthIndex: number): string[] {
     appendTodayMarker(cls, iso);
     return cls;
   }
+  if (workDayWeightOnCell(iso) === 0.5) cls.push("day-cell--half");
   if (cellUsesJobBlock(iso, y, monthIndex)) {
     cls.push("day-cell--work", "day-cell--work-on-block");
     if (runHoverActive) cls.push("day-cell--calendar-run-hover");
@@ -1355,14 +1468,17 @@ function isoInHighlightedJobs(iso: string): boolean {
   if (!highlightedJobIds.value.length) return false;
   for (const id of highlightedJobIds.value) {
     const e = entries.value.find((x) => x.id === id);
-    if (e?.dates.includes(iso)) return true;
+    if (e && jobDatesStrings(e).includes(iso)) return true;
   }
   return false;
 }
 
 function entryDatesInSelectedYear(entry: JobEntry): string[] {
   const prefix = `${year.value}-`;
-  return entry.dates.filter((d) => d.startsWith(prefix)).sort();
+  return entry.days
+    .map((d) => d.date)
+    .filter((d) => d.startsWith(prefix))
+    .sort();
 }
 
 function onJobRowClick(entry: JobEntry) {
@@ -1396,28 +1512,46 @@ function isoFromClientPoint(clientX: number, clientY: number): string | null {
 }
 
 function mergeDraftDayIntoSelection(iso: string) {
-  if (!draftDates.value.includes(iso)) {
-    draftDates.value = [...draftDates.value, iso].sort();
-  }
+  const next = { ...draftDayMap.value };
+  next[iso] = 1;
+  draftDayMap.value = next;
 }
 
 function subtractDraftDayFromSelection(iso: string) {
-  if (draftDates.value.includes(iso)) {
-    draftDates.value = draftDates.value.filter((x) => x !== iso);
-  }
+  if (!(iso in draftDayMap.value)) return;
+  const next = { ...draftDayMap.value };
+  delete next[iso];
+  draftDayMap.value = next;
 }
 
+/** Long-press on an empty day: cycle ½ → clear, or full → ½. */
+function toggleDraftHalfDaySelection(iso: string) {
+  const now = Date.now();
+  if (iso === lastDraftToggleIso && now - lastDraftToggleAt < 320) return;
+  lastDraftToggleIso = iso;
+  lastDraftToggleAt = now;
+
+  const next = { ...draftDayMap.value };
+  const cur = next[iso];
+  if (cur === undefined) next[iso] = 0.5;
+  else if (cur === 0.5) delete next[iso];
+  else next[iso] = 0.5;
+  draftDayMap.value = next;
+}
+
+/** Short tap / paint add: cycle empty → full → clear; upgrade half → full. */
 function toggleDraftDaySelection(iso: string) {
   const now = Date.now();
   if (iso === lastDraftToggleIso && now - lastDraftToggleAt < 320) return;
   lastDraftToggleIso = iso;
   lastDraftToggleAt = now;
 
-  if (draftDates.value.includes(iso)) {
-    draftDates.value = draftDates.value.filter((x) => x !== iso);
-  } else {
-    draftDates.value = [...draftDates.value, iso].sort();
-  }
+  const next = { ...draftDayMap.value };
+  const cur = next[iso];
+  if (cur === undefined) next[iso] = 1;
+  else if (cur === 0.5) next[iso] = 1;
+  else delete next[iso];
+  draftDayMap.value = next;
 }
 
 function cleanupDraftPaintGestureListeners() {
@@ -1426,59 +1560,94 @@ function cleanupDraftPaintGestureListeners() {
   window.removeEventListener("pointercancel", draftPaintPointerEndHandler);
 }
 
-function detachTouchEmptyDayListeners() {
-  window.removeEventListener("pointermove", onTouchEmptyDayMove);
-  window.removeEventListener("pointerup", onTouchEmptyDayEnd);
-  window.removeEventListener("pointercancel", onTouchEmptyDayEnd);
+function clearEmptyDayLongPressTimer(st: EmptyDayGestureState) {
+  if (st.longPressTimer !== null) {
+    clearTimeout(st.longPressTimer);
+    st.longPressTimer = null;
+  }
 }
 
-function cleanupTouchEmptyDayGesture() {
-  if (!touchEmptyDay) return;
-  detachTouchEmptyDayListeners();
-  touchEmptyDay = null;
+function detachEmptyDayGestureListeners() {
+  window.removeEventListener("pointermove", onEmptyDayPointerMove);
+  window.removeEventListener("pointerup", onEmptyDayPointerUp);
+  window.removeEventListener("pointercancel", onEmptyDayPointerUp);
+}
+
+function cleanupEmptyDayGesture() {
+  if (!emptyDayGesture) return;
+  clearEmptyDayLongPressTimer(emptyDayGesture);
+  detachEmptyDayGestureListeners();
+  emptyDayGesture = null;
 }
 
 function startDraftPaintFromPointer(iso: string) {
   draftPaintActive.value = true;
   draftPaintDragIntent.value = false;
-  draftPaintSubtractMode = draftDates.value.includes(iso);
+  draftPaintSubtractMode = iso in draftDayMap.value;
   draftPaintStrokeSet = new Set([iso]);
   window.addEventListener("pointermove", draftPaintPointerMoveHandler);
   window.addEventListener("pointerup", draftPaintPointerEndHandler);
   window.addEventListener("pointercancel", draftPaintPointerEndHandler);
 }
 
-function onTouchEmptyDayMove(e: PointerEvent) {
-  if (!touchEmptyDay || e.pointerId !== touchEmptyDay.pointerId) return;
+function onEmptyDayPointerMove(e: PointerEvent) {
+  if (!emptyDayGesture || e.pointerId !== emptyDayGesture.pointerId) return;
+  if (emptyDayGesture.longPressFired) return;
 
-  const dx = e.clientX - touchEmptyDay.x0;
-  const dy = e.clientY - touchEmptyDay.y0;
+  const { x0, y0, iso, pointerType } = emptyDayGesture;
+  const dx = e.clientX - x0;
+  const dy = e.clientY - y0;
   const dist = Math.hypot(dx, dy);
   if (dist <= CAL_DRAG_SLOP_PX) return;
 
-  if (Math.abs(dy) > Math.abs(dx) * CAL_SCROLL_VS_HORIZONTAL) {
-    detachTouchEmptyDayListeners();
-    touchEmptyDay = null;
-    suppressCalendarDayClick.value = true;
-    return;
+  if (pointerType === "touch") {
+    if (Math.abs(dy) > Math.abs(dx) * CAL_SCROLL_VS_HORIZONTAL) {
+      cleanupEmptyDayGesture();
+      suppressCalendarDayClick.value = true;
+      return;
+    }
   }
 
-  const iso = touchEmptyDay.iso;
-  detachTouchEmptyDayListeners();
-  touchEmptyDay = null;
+  clearEmptyDayLongPressTimer(emptyDayGesture);
+  detachEmptyDayGestureListeners();
+  emptyDayGesture = null;
   e.preventDefault();
   startDraftPaintFromPointer(iso);
   draftPaintDragIntent.value = true;
   draftPaintPointerMoveHandler(e);
 }
 
-function onTouchEmptyDayEnd(e: PointerEvent) {
-  if (!touchEmptyDay || e.pointerId !== touchEmptyDay.pointerId) return;
-  const { iso } = touchEmptyDay;
-  detachTouchEmptyDayListeners();
-  touchEmptyDay = null;
+function startEmptyDayGesture(iso: string, e: PointerEvent) {
+  cleanupEmptyDayGesture();
+  const pointerId = e.pointerId;
+  const st: EmptyDayGestureState = {
+    iso,
+    pointerId,
+    x0: e.clientX,
+    y0: e.clientY,
+    pointerType: e.pointerType,
+    longPressTimer: null,
+    longPressFired: false,
+  };
+  st.longPressTimer = setTimeout(() => {
+    if (!emptyDayGesture || emptyDayGesture.pointerId !== pointerId) return;
+    emptyDayGesture.longPressTimer = null;
+    emptyDayGesture.longPressFired = true;
+    toggleDraftHalfDaySelection(iso);
+    suppressCalendarDayClick.value = true;
+  }, CAL_LONG_PRESS_MS);
+  emptyDayGesture = st;
+  window.addEventListener("pointermove", onEmptyDayPointerMove);
+  window.addEventListener("pointerup", onEmptyDayPointerUp);
+  window.addEventListener("pointercancel", onEmptyDayPointerUp);
+}
+
+function onEmptyDayPointerUp(e: PointerEvent) {
+  if (!emptyDayGesture || e.pointerId !== emptyDayGesture.pointerId) return;
+  const { iso, longPressFired } = emptyDayGesture;
+  cleanupEmptyDayGesture();
   suppressCalendarDayClick.value = true;
-  if (e.type === "pointerup") {
+  if (e.type === "pointerup" && !longPressFired) {
     toggleDraftDaySelection(iso);
   }
 }
@@ -1525,22 +1694,8 @@ function onCalendarDayPointerDown(cell: Cell, e: PointerEvent) {
 
   if (e.pointerType === "mouse" && e.button !== 0) return;
 
-  if (e.pointerType === "touch") {
-    cleanupTouchEmptyDayGesture();
-    touchEmptyDay = {
-      iso,
-      pointerId: e.pointerId,
-      x0: e.clientX,
-      y0: e.clientY,
-    };
-    window.addEventListener("pointermove", onTouchEmptyDayMove);
-    window.addEventListener("pointerup", onTouchEmptyDayEnd);
-    window.addEventListener("pointercancel", onTouchEmptyDayEnd);
-    return;
-  }
-
   e.preventDefault();
-  startDraftPaintFromPointer(iso);
+  startEmptyDayGesture(iso, e);
 }
 
 function onCalendarDayClick(date: string) {
@@ -1581,7 +1736,7 @@ function onDayClick(date: string) {
 onScopeDispose(() => {
   if (highlightClearTimer) clearTimeout(highlightClearTimer);
   cleanupDraftPaintGestureListeners();
-  cleanupTouchEmptyDayGesture();
+  cleanupEmptyDayGesture();
   draftPaintActive.value = false;
 });
 </script>
@@ -2231,6 +2386,11 @@ html.theme-dark .delete-job-card.draft-bubble-theme.surface-card {
   -webkit-appearance: none;
 }
 
+.day-cell__num {
+  position: relative;
+  z-index: 1;
+}
+
 @media (hover: hover) and (pointer: fine) {
   .day-cell:not(:disabled):not(.day-cell--draft):not(.day-cell--work):hover {
     background: var(--plan-day-hover-bg);
@@ -2277,6 +2437,43 @@ html.theme-dark .delete-job-card.draft-bubble-theme.surface-card {
     background 0.15s ease,
     border-color 0.15s ease,
     box-shadow 0.15s ease;
+}
+
+.day-cell--work.day-cell--half:not(.day-cell--work-on-block) {
+  background: linear-gradient(
+    to top,
+    var(--plan-accent-soft) 50%,
+    var(--plan-surface) 50%
+  );
+}
+
+.day-cell--draft.day-cell--half:not(.day-cell--draft-on-block) {
+  background: linear-gradient(
+    to top,
+    var(--plan-draft-bg) 50%,
+    var(--plan-surface) 50%
+  );
+}
+
+.day-cell--work-on-block.day-cell--half::after,
+.day-cell--draft-on-block.day-cell--half::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 50%;
+  pointer-events: none;
+  z-index: 0;
+  border-radius: 0 0 10px 10px;
+}
+
+.day-cell--work-on-block.day-cell--half::after {
+  background: var(--plan-accent-soft);
+}
+
+.day-cell--draft-on-block.day-cell--half::after {
+  background: var(--plan-draft-bg);
 }
 
 .day-cell--work:focus-visible {

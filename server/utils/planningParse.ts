@@ -1,5 +1,6 @@
 import type { StoredState } from "~~/shared/planning-state";
 import {
+  normalizeJobEntryRaw,
   parseComfortTargetFromStored,
   parseDayRateFromStored,
 } from "~~/shared/planning-state";
@@ -25,16 +26,9 @@ export function parsePlanningStoredState(data: unknown): StoredState | null {
     parseDayRateFromStored(d.dayRate)
     ?? parseDayRateFromStored(d["day_rate"]);
   const rawEntries = Array.isArray(d.entries) ? d.entries : [];
-  const entries = rawEntries.filter(
-    (e): e is StoredState["entries"][number] =>
-      !!(
-        e
-        && typeof e === "object"
-        && typeof (e as { id?: unknown }).id === "string"
-        && typeof (e as { project?: unknown }).project === "string"
-        && Array.isArray((e as { dates?: unknown }).dates)
-      ),
-  );
+  const entries = rawEntries
+    .map((e) => normalizeJobEntryRaw(e))
+    .filter((e): e is NonNullable<typeof e> => e !== null);
   const seRaw = d.settingsEditedAt ?? d["settings_edited_at"];
   let settingsEditedAt: string | undefined;
   if (typeof seRaw === "string" && Number.isFinite(Date.parse(seRaw))) {
