@@ -577,8 +577,18 @@ const draftPaintDragIntent = ref(false);
 const suppressCalendarDayClick = ref(false);
 let draftPaintStrokeSet = new Set<string>();
 let draftPaintSubtractMode = false;
-let draftPaintStartX = 0;
-let draftPaintStartY = 0;
+/** Finger on empty day: short tap does nothing; hold toggles one day; drag paints a range. */
+const TOUCH_EMPTY_DAY_LONG_PRESS_MS = 420;
+const TOUCH_PAINT_MOVE_PX = 14;
+type DeferredTouchState = {
+  iso: string;
+  pointerId: number;
+  x0: number;
+  y0: number;
+  maxMove: number;
+  longPressTimer: ReturnType<typeof setTimeout>;
+};
+let deferredTouch: DeferredTouchState | null = null;
 /** Debounce duplicate toggle from pointerup + click firing close together. */
 let lastDraftToggleAt = 0;
 let lastDraftToggleIso = "";
@@ -1240,6 +1250,52 @@ function cleanupDraftPaintGestureListeners() {
   window.removeEventListener("pointercancel", draftPaintPointerEndHandler);
 }
 
+function detachDeferredTouchListeners() {
+  window.removeEventListener("pointermove", onDeferredTouchMove);
+  window.removeEventListener("pointerup", onDeferredTouchEnd);
+  window.removeEventListener("pointercancel", onDeferredTouchEnd);
+}
+
+function cleanupDeferredTouchGesture() {
+  if (!deferredTouch) return;
+  clearTimeout(deferredTouch.longPressTimer);
+  detachDeferredTouchListeners();
+  deferredTouch = null;
+}
+
+function startDraftPaintFromPointer(iso: string) {
+  draftPaintActive.value = true;
+  draftPaintDragIntent.value = false;
+  draftPaintSubtractMode = draftDates.value.includes(iso);
+  draftPaintStrokeSet = new Set([iso]);
+  window.addEventListener("pointermove", draftPaintPointerMoveHandler);
+  window.addEventListener("pointerup", draftPaintPointerEndHandler);
+  window.addEventListener("pointercancel", draftPaintPointerEndHandler);
+}
+
+function onDeferredTouchMove(e: PointerEvent) {
+  if (!deferredTouch || e.pointerId !== deferredTouch.pointerId) return;
+  const d = Math.hypot(e.clientX - deferredTouch.x0, e.clientY - deferredTouch.y0);
+  deferredTouch.maxMove = Math.max(deferredTouch.maxMove, d);
+  if (d <= TOUCH_PAINT_MOVE_PX) return;
+  const iso = deferredTouch.iso;
+  clearTimeout(deferredTouch.longPressTimer);
+  detachDeferredTouchListeners();
+  deferredTouch = null;
+  e.preventDefault();
+  startDraftPaintFromPointer(iso);
+  draftPaintDragIntent.value = true;
+  draftPaintPointerMoveHandler(e);
+}
+
+function onDeferredTouchEnd(e: PointerEvent) {
+  if (!deferredTouch || e.pointerId !== deferredTouch.pointerId) return;
+  detachDeferredTouchListeners();
+  clearTimeout(deferredTouch.longPressTimer);
+  deferredTouch = null;
+  suppressCalendarDayClick.value = true;
+}
+
 function draftPaintPointerMoveHandler(e: PointerEvent) {
   if (!draftPaintActive.value) return;
 
@@ -1282,18 +1338,29 @@ function onCalendarDayPointerDown(cell: Cell, e: PointerEvent) {
 
   if (e.pointerType === "mouse" && e.button !== 0) return;
 
+  if (e.pointerType === "touch") {
+    cleanupDeferredTouchGesture();
+    const touchState: DeferredTouchState = {
+      iso,
+      pointerId: e.pointerId,
+      x0: e.clientX,
+      y0: e.clientY,
+      maxMove: 0,
+      longPressTimer: 0 as unknown as ReturnType<typeof setTimeout>,
+    };
+    touchState.longPressTimer = setTimeout(() => {
+      if (!deferredTouch || deferredTouch !== touchState) return;
+      toggleDraftDaySelection(iso);
+    }, TOUCH_EMPTY_DAY_LONG_PRESS_MS);
+    deferredTouch = touchState;
+    window.addEventListener("pointermove", onDeferredTouchMove);
+    window.addEventListener("pointerup", onDeferredTouchEnd);
+    window.addEventListener("pointercancel", onDeferredTouchEnd);
+    return;
+  }
+
   e.preventDefault();
-
-  draftPaintActive.value = true;
-  draftPaintDragIntent.value = false;
-  draftPaintSubtractMode = draftDates.value.includes(iso);
-  draftPaintStrokeSet = new Set([iso]);
-  draftPaintStartX = e.clientX;
-  draftPaintStartY = e.clientY;
-
-  window.addEventListener("pointermove", draftPaintPointerMoveHandler);
-  window.addEventListener("pointerup", draftPaintPointerEndHandler);
-  window.addEventListener("pointercancel", draftPaintPointerEndHandler);
+  startDraftPaintFromPointer(iso);
 }
 
 function onCalendarDayClick(date: string) {
@@ -1334,6 +1401,7 @@ function onDayClick(date: string) {
 onScopeDispose(() => {
   if (highlightClearTimer) clearTimeout(highlightClearTimer);
   cleanupDraftPaintGestureListeners();
+  cleanupDeferredTouchGesture();
   draftPaintActive.value = false;
 });
 </script>
@@ -1896,6 +1964,7 @@ html.theme-dark .delete-job-card.draft-bubble-theme.surface-card {
   grid-template-columns: repeat(7, minmax(0, 1fr));
   gap: 4px;
   align-items: stretch;
+  touch-action: pan-y;
 }
 
 .mini-month__calendar.draft-paint-active {
