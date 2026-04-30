@@ -215,13 +215,59 @@
                 Jobs ({{ entries.length }})
               </v-card-title>
               <template v-if="entries.length">
-                <template v-if="entriesOpenSorted.length">
+                <template v-if="entriesUpNextSorted.length">
                   <p class="job-section-label mb-2">
+                    Up next
+                  </p>
+                  <v-list bg-color="transparent" class="entry-list" density="comfortable">
+                    <v-list-item
+                      v-for="e in entriesUpNextSorted"
+                      :id="'job-row-' + e.id"
+                      :key="e.id"
+                      :class="[
+                        'entry-item px-2 py-2 rounded-lg entry-item--up-next',
+                        { 'entry-item--highlight': highlightedJobIds.includes(e.id) },
+                      ]"
+                      rounded="lg"
+                      @click="onJobRowClick(e)"
+                    >
+                      <v-list-item-title class="entry-title">
+                        {{ e.project }}
+                      </v-list-item-title>
+                      <v-list-item-subtitle class="entry-sub">
+                        {{ summarizeDates(e.dates) }}
+                      </v-list-item-subtitle>
+                      <template #append>
+                        <v-btn
+                          aria-label="Edit job"
+                          class="touch-icon"
+                          icon="mdi-pencil-outline"
+                          size="large"
+                          variant="text"
+                          @click.stop="openEditJob(e)"
+                        />
+                        <v-btn
+                          aria-label="Remove entry"
+                          class="touch-icon"
+                          icon="mdi-delete-outline"
+                          size="large"
+                          variant="text"
+                          @click.stop="openDeleteJobConfirm(e)"
+                        />
+                      </template>
+                    </v-list-item>
+                  </v-list>
+                </template>
+                <template v-if="entriesOpenRestSorted.length">
+                  <p
+                    class="job-section-label mb-2"
+                    :class="{ 'job-section-label--spaced': entriesUpNextSorted.length > 0 }"
+                  >
                     Open
                   </p>
                   <v-list bg-color="transparent" class="entry-list" density="comfortable">
                     <v-list-item
-                      v-for="e in entriesOpenSorted"
+                      v-for="e in entriesOpenRestSorted"
                       :id="'job-row-' + e.id"
                       :key="e.id"
                       :class="[
@@ -261,7 +307,10 @@
                 <template v-if="entriesClosedSorted.length">
                   <p
                     class="job-section-label mb-2"
-                    :class="{ 'job-section-label--spaced': entriesOpenSorted.length > 0 }"
+                    :class="{
+                      'job-section-label--spaced':
+                        entriesUpNextSorted.length > 0 || entriesOpenRestSorted.length > 0,
+                    }"
                   >
                     Closed
                   </p>
@@ -754,32 +803,74 @@ function maxDate(dates: string[]): string | null {
   return [...dates].sort().at(-1) ?? null;
 }
 
+/** Earliest scheduled day on or after `today` (for ordering open work). */
+function nextWorkDayOnOrAfter(dates: string[], today: string): string | null {
+  for (const d of [...dates].sort()) {
+    if (d >= today) return d;
+  }
+  return null;
+}
+
+function compareOpenJobs(a: JobEntry, b: JobEntry, today: string): number {
+  const na = nextWorkDayOnOrAfter(a.dates, today);
+  const nb = nextWorkDayOnOrAfter(b.dates, today);
+  const byNext = (na ?? "\uffff").localeCompare(nb ?? "\uffff");
+  if (byNext !== 0) return byNext;
+  const ma = minDate(a.dates);
+  const mb = minDate(b.dates);
+  const byFirst = (ma ?? "").localeCompare(mb ?? "");
+  if (byFirst !== 0) return byFirst;
+  return a.project.localeCompare(b.project);
+}
+
+function sortOpenJobs(open: JobEntry[], today: string): JobEntry[] {
+  return [...open].sort((a, b) => compareOpenJobs(a, b, today));
+}
+
+function sortClosedJobs(closed: JobEntry[]): JobEntry[] {
+  return [...closed].sort((a, b) => {
+    const la = maxDate(a.dates);
+    const lb = maxDate(b.dates);
+    const byLastEnded = (lb ?? "").localeCompare(la ?? "");
+    if (byLastEnded !== 0) return byLastEnded;
+    return a.project.localeCompare(b.project);
+  });
+}
+
 function isJobOpenForToday(entry: JobEntry, today: string): boolean {
   const last = maxDate(entry.dates);
   if (!last) return true;
   return last >= today;
 }
 
-const entriesOpenSorted = computed(() => {
+const entriesUpNextSorted = computed(() => {
   const t = todayIso.value;
-  return entries.value
-    .filter((e) => isJobOpenForToday(e, t))
-    .sort((a, b) => {
-      const am = minDate(a.dates);
-      const bm = minDate(b.dates);
-      return (am ?? "").localeCompare(bm ?? "");
-    });
+  const open = entries.value.filter((e) => isJobOpenForToday(e, t));
+  if (!open.length) return [];
+
+  let minNext: string | null = null;
+  for (const e of open) {
+    const n = nextWorkDayOnOrAfter(e.dates, t);
+    if (!n) continue;
+    if (minNext === null || n < minNext) minNext = n;
+  }
+  if (minNext === null) return [];
+
+  const tied = open.filter((e) => nextWorkDayOnOrAfter(e.dates, t) === minNext);
+  return sortOpenJobs(tied, t);
+});
+
+const entriesOpenRestSorted = computed(() => {
+  const t = todayIso.value;
+  const upIds = new Set(entriesUpNextSorted.value.map((e) => e.id));
+  const rest = entries.value.filter((e) => isJobOpenForToday(e, t) && !upIds.has(e.id));
+  return sortOpenJobs(rest, t);
 });
 
 const entriesClosedSorted = computed(() => {
   const t = todayIso.value;
-  return entries.value
-    .filter((e) => !isJobOpenForToday(e, t))
-    .sort((a, b) => {
-      const am = minDate(a.dates);
-      const bm = minDate(b.dates);
-      return (am ?? "").localeCompare(bm ?? "");
-    });
+  const closed = entries.value.filter((e) => !isJobOpenForToday(e, t));
+  return sortClosedJobs(closed);
 });
 
 function minDate(dates: string[]): string | null {
@@ -1926,6 +2017,11 @@ html.theme-dark .delete-job-card.draft-bubble-theme.surface-card {
 
 .job-section-label--spaced {
   margin-top: 20px;
+}
+
+.entry-item--up-next:not(.entry-item--highlight) {
+  background: var(--plan-accent-soft) !important;
+  border-color: var(--plan-work-border) !important;
 }
 
 .entry-item--closed:not(.entry-item--highlight) .entry-title,
