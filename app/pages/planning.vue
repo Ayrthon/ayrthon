@@ -577,18 +577,16 @@ const draftPaintDragIntent = ref(false);
 const suppressCalendarDayClick = ref(false);
 let draftPaintStrokeSet = new Set<string>();
 let draftPaintSubtractMode = false;
-/** Finger on empty day: short tap does nothing; hold toggles one day; drag paints a range. */
-const TOUCH_EMPTY_DAY_LONG_PRESS_MS = 420;
-const TOUCH_PAINT_MOVE_PX = 14;
-type DeferredTouchState = {
+/** Touch empty day (Samsung-style): still finger → tap selects; dominant vertical move → scroll, no select; else → drag multi-select. */
+const CAL_DRAG_SLOP_PX = 14;
+const CAL_SCROLL_VS_HORIZONTAL = 1.12;
+type TouchEmptyDayState = {
   iso: string;
   pointerId: number;
   x0: number;
   y0: number;
-  maxMove: number;
-  longPressTimer: ReturnType<typeof setTimeout>;
 };
-let deferredTouch: DeferredTouchState | null = null;
+let touchEmptyDay: TouchEmptyDayState | null = null;
 /** Debounce duplicate toggle from pointerup + click firing close together. */
 let lastDraftToggleAt = 0;
 let lastDraftToggleIso = "";
@@ -1250,17 +1248,16 @@ function cleanupDraftPaintGestureListeners() {
   window.removeEventListener("pointercancel", draftPaintPointerEndHandler);
 }
 
-function detachDeferredTouchListeners() {
-  window.removeEventListener("pointermove", onDeferredTouchMove);
-  window.removeEventListener("pointerup", onDeferredTouchEnd);
-  window.removeEventListener("pointercancel", onDeferredTouchEnd);
+function detachTouchEmptyDayListeners() {
+  window.removeEventListener("pointermove", onTouchEmptyDayMove);
+  window.removeEventListener("pointerup", onTouchEmptyDayEnd);
+  window.removeEventListener("pointercancel", onTouchEmptyDayEnd);
 }
 
-function cleanupDeferredTouchGesture() {
-  if (!deferredTouch) return;
-  clearTimeout(deferredTouch.longPressTimer);
-  detachDeferredTouchListeners();
-  deferredTouch = null;
+function cleanupTouchEmptyDayGesture() {
+  if (!touchEmptyDay) return;
+  detachTouchEmptyDayListeners();
+  touchEmptyDay = null;
 }
 
 function startDraftPaintFromPointer(iso: string) {
@@ -1273,27 +1270,39 @@ function startDraftPaintFromPointer(iso: string) {
   window.addEventListener("pointercancel", draftPaintPointerEndHandler);
 }
 
-function onDeferredTouchMove(e: PointerEvent) {
-  if (!deferredTouch || e.pointerId !== deferredTouch.pointerId) return;
-  const d = Math.hypot(e.clientX - deferredTouch.x0, e.clientY - deferredTouch.y0);
-  deferredTouch.maxMove = Math.max(deferredTouch.maxMove, d);
-  if (d <= TOUCH_PAINT_MOVE_PX) return;
-  const iso = deferredTouch.iso;
-  clearTimeout(deferredTouch.longPressTimer);
-  detachDeferredTouchListeners();
-  deferredTouch = null;
+function onTouchEmptyDayMove(e: PointerEvent) {
+  if (!touchEmptyDay || e.pointerId !== touchEmptyDay.pointerId) return;
+
+  const dx = e.clientX - touchEmptyDay.x0;
+  const dy = e.clientY - touchEmptyDay.y0;
+  const dist = Math.hypot(dx, dy);
+  if (dist <= CAL_DRAG_SLOP_PX) return;
+
+  if (Math.abs(dy) > Math.abs(dx) * CAL_SCROLL_VS_HORIZONTAL) {
+    detachTouchEmptyDayListeners();
+    touchEmptyDay = null;
+    suppressCalendarDayClick.value = true;
+    return;
+  }
+
+  const iso = touchEmptyDay.iso;
+  detachTouchEmptyDayListeners();
+  touchEmptyDay = null;
   e.preventDefault();
   startDraftPaintFromPointer(iso);
   draftPaintDragIntent.value = true;
   draftPaintPointerMoveHandler(e);
 }
 
-function onDeferredTouchEnd(e: PointerEvent) {
-  if (!deferredTouch || e.pointerId !== deferredTouch.pointerId) return;
-  detachDeferredTouchListeners();
-  clearTimeout(deferredTouch.longPressTimer);
-  deferredTouch = null;
+function onTouchEmptyDayEnd(e: PointerEvent) {
+  if (!touchEmptyDay || e.pointerId !== touchEmptyDay.pointerId) return;
+  const { iso } = touchEmptyDay;
+  detachTouchEmptyDayListeners();
+  touchEmptyDay = null;
   suppressCalendarDayClick.value = true;
+  if (e.type === "pointerup") {
+    toggleDraftDaySelection(iso);
+  }
 }
 
 function draftPaintPointerMoveHandler(e: PointerEvent) {
@@ -1339,23 +1348,16 @@ function onCalendarDayPointerDown(cell: Cell, e: PointerEvent) {
   if (e.pointerType === "mouse" && e.button !== 0) return;
 
   if (e.pointerType === "touch") {
-    cleanupDeferredTouchGesture();
-    const touchState: DeferredTouchState = {
+    cleanupTouchEmptyDayGesture();
+    touchEmptyDay = {
       iso,
       pointerId: e.pointerId,
       x0: e.clientX,
       y0: e.clientY,
-      maxMove: 0,
-      longPressTimer: 0 as unknown as ReturnType<typeof setTimeout>,
     };
-    touchState.longPressTimer = setTimeout(() => {
-      if (!deferredTouch || deferredTouch !== touchState) return;
-      toggleDraftDaySelection(iso);
-    }, TOUCH_EMPTY_DAY_LONG_PRESS_MS);
-    deferredTouch = touchState;
-    window.addEventListener("pointermove", onDeferredTouchMove);
-    window.addEventListener("pointerup", onDeferredTouchEnd);
-    window.addEventListener("pointercancel", onDeferredTouchEnd);
+    window.addEventListener("pointermove", onTouchEmptyDayMove);
+    window.addEventListener("pointerup", onTouchEmptyDayEnd);
+    window.addEventListener("pointercancel", onTouchEmptyDayEnd);
     return;
   }
 
@@ -1401,7 +1403,7 @@ function onDayClick(date: string) {
 onScopeDispose(() => {
   if (highlightClearTimer) clearTimeout(highlightClearTimer);
   cleanupDraftPaintGestureListeners();
-  cleanupDeferredTouchGesture();
+  cleanupTouchEmptyDayGesture();
   draftPaintActive.value = false;
 });
 </script>
