@@ -1883,6 +1883,15 @@ html.theme-dark .delete-job-card.draft-bubble-theme.surface-card {
   font-variant-numeric: tabular-nums;
 }
 
+/* No text selection or copy in the calendar card (desktop + touch). */
+#planning-calendar-card,
+#planning-calendar-card * {
+  user-select: none;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -webkit-touch-callout: none;
+}
+
 .year-grid {
   display: grid;
   grid-template-columns: 1fr;
