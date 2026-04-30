@@ -1666,14 +1666,16 @@ html.theme-dark .draft-bubble-theme {
 }
 
 .comfort-settings-card.draft-bubble-theme.surface-card,
-.job-edit-card.draft-bubble-theme.surface-card {
+.job-edit-card.draft-bubble-theme.surface-card,
+.delete-job-card.draft-bubble-theme.surface-card {
   color: var(--plan-text);
   color-scheme: light;
   background-color: var(--plan-surface) !important;
 }
 
 html.theme-dark .comfort-settings-card.draft-bubble-theme.surface-card,
-html.theme-dark .job-edit-card.draft-bubble-theme.surface-card {
+html.theme-dark .job-edit-card.draft-bubble-theme.surface-card,
+html.theme-dark .delete-job-card.draft-bubble-theme.surface-card {
   color-scheme: dark;
 }
 
@@ -1710,6 +1712,31 @@ html.theme-dark .job-edit-card.draft-bubble-theme.surface-card {
 }
 
 .job-edit-actions {
+  gap: 8px;
+}
+
+.delete-job-dialog :deep(.v-overlay__content) {
+  width: min(100%, 360px);
+}
+
+.delete-job-card__title {
+  font-size: 1.125rem !important;
+  font-weight: 700 !important;
+  color: var(--plan-text) !important;
+  letter-spacing: -0.01em;
+}
+
+.delete-job-card :deep(.v-card-text) {
+  color: var(--plan-text) !important;
+  opacity: 1 !important;
+}
+
+.delete-job-card :deep(.v-card-text p) {
+  color: var(--plan-text);
+  line-height: 1.45;
+}
+
+.delete-job-actions {
   gap: 8px;
 }
 

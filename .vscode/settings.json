@@ -1,0 +1,10 @@
+{
+  "git.path": "\\\\wsl.localhost\\Ubuntu\\usr\\bin\\git",
+  "terminal.integrated.defaultProfile.windows": "WSL (ayrthon)",
+  "terminal.integrated.profiles.windows": {
+    "WSL (ayrthon)": {
+      "path": "C:\\Windows\\System32\\wsl.exe",
+      "args": ["-d", "Ubuntu", "--cd", "/home/ayrthon/code/ayrthon"]
+    }
+  }
+}
