@@ -214,44 +214,97 @@
               <v-card-title class="card-title px-0 pt-0 pb-3">
                 Jobs ({{ entries.length }})
               </v-card-title>
-              <v-list v-if="entriesSorted.length" bg-color="transparent" class="entry-list" density="comfortable">
-                <v-list-item
-                  v-for="e in entriesSorted"
-                  :id="'job-row-' + e.id"
-                  :key="e.id"
-                  :class="[
-                    'entry-item px-2 py-2 rounded-lg',
-                    { 'entry-item--highlight': highlightedJobIds.includes(e.id) },
-                  ]"
-                  rounded="lg"
-                  @click="onJobRowClick(e)"
-                >
-                  <v-list-item-title class="entry-title">
-                    {{ e.project }}
-                  </v-list-item-title>
-                  <v-list-item-subtitle class="entry-sub">
-                    {{ summarizeDates(e.dates) }}
-                  </v-list-item-subtitle>
-                  <template #append>
-                    <v-btn
-                      aria-label="Edit job"
-                      class="touch-icon"
-                      icon="mdi-pencil-outline"
-                      size="large"
-                      variant="text"
-                      @click.stop="openEditJob(e)"
-                    />
-                    <v-btn
-                      aria-label="Remove entry"
-                      class="touch-icon"
-                      icon="mdi-delete-outline"
-                      size="large"
-                      variant="text"
-                      @click.stop="openDeleteJobConfirm(e)"
-                    />
-                  </template>
-                </v-list-item>
-              </v-list>
+              <template v-if="entries.length">
+                <template v-if="entriesOpenSorted.length">
+                  <p class="job-section-label mb-2">
+                    Open
+                  </p>
+                  <v-list bg-color="transparent" class="entry-list" density="comfortable">
+                    <v-list-item
+                      v-for="e in entriesOpenSorted"
+                      :id="'job-row-' + e.id"
+                      :key="e.id"
+                      :class="[
+                        'entry-item px-2 py-2 rounded-lg',
+                        { 'entry-item--highlight': highlightedJobIds.includes(e.id) },
+                      ]"
+                      rounded="lg"
+                      @click="onJobRowClick(e)"
+                    >
+                      <v-list-item-title class="entry-title">
+                        {{ e.project }}
+                      </v-list-item-title>
+                      <v-list-item-subtitle class="entry-sub">
+                        {{ summarizeDates(e.dates) }}
+                      </v-list-item-subtitle>
+                      <template #append>
+                        <v-btn
+                          aria-label="Edit job"
+                          class="touch-icon"
+                          icon="mdi-pencil-outline"
+                          size="large"
+                          variant="text"
+                          @click.stop="openEditJob(e)"
+                        />
+                        <v-btn
+                          aria-label="Remove entry"
+                          class="touch-icon"
+                          icon="mdi-delete-outline"
+                          size="large"
+                          variant="text"
+                          @click.stop="openDeleteJobConfirm(e)"
+                        />
+                      </template>
+                    </v-list-item>
+                  </v-list>
+                </template>
+                <template v-if="entriesClosedSorted.length">
+                  <p
+                    class="job-section-label mb-2"
+                    :class="{ 'job-section-label--spaced': entriesOpenSorted.length > 0 }"
+                  >
+                    Closed
+                  </p>
+                  <v-list bg-color="transparent" class="entry-list" density="comfortable">
+                    <v-list-item
+                      v-for="e in entriesClosedSorted"
+                      :id="'job-row-' + e.id"
+                      :key="e.id"
+                      :class="[
+                        'entry-item px-2 py-2 rounded-lg entry-item--closed',
+                        { 'entry-item--highlight': highlightedJobIds.includes(e.id) },
+                      ]"
+                      rounded="lg"
+                      @click="onJobRowClick(e)"
+                    >
+                      <v-list-item-title class="entry-title">
+                        {{ e.project }}
+                      </v-list-item-title>
+                      <v-list-item-subtitle class="entry-sub">
+                        {{ summarizeDates(e.dates) }}
+                      </v-list-item-subtitle>
+                      <template #append>
+                        <v-btn
+                          aria-label="Edit job"
+                          class="touch-icon"
+                          icon="mdi-pencil-outline"
+                          size="large"
+                          variant="text"
+                          @click.stop="openEditJob(e)"
+                        />
+                        <v-btn
+                          aria-label="Remove entry"
+                          class="touch-icon"
+                          icon="mdi-delete-outline"
+                          size="large"
+                          variant="text"
+                          @click.stop="openDeleteJobConfirm(e)"
+                        />
+                      </template>
+                    </v-list-item>
+                  </v-list>
+                </template>
+              </template>
               <p v-else class="empty-text mb-0">
                 No jobs yet.
               </p>
@@ -695,13 +748,39 @@ const progressNote = computed(() => {
   return `${over} distinct work day${over === 1 ? "" : "s"} above comfort target for this year.`;
 });
 
-const entriesSorted = computed(() =>
-  [...entries.value].sort((a, b) => {
-    const am = minDate(a.dates);
-    const bm = minDate(b.dates);
-    return (am ?? "").localeCompare(bm ?? "");
-  }),
-);
+/** Latest work day for a job; open until this day is before today (ISO YYYY-MM-DD compares lexicographically). */
+function maxDate(dates: string[]): string | null {
+  if (!dates.length) return null;
+  return [...dates].sort().at(-1) ?? null;
+}
+
+function isJobOpenForToday(entry: JobEntry, today: string): boolean {
+  const last = maxDate(entry.dates);
+  if (!last) return true;
+  return last >= today;
+}
+
+const entriesOpenSorted = computed(() => {
+  const t = todayIso.value;
+  return entries.value
+    .filter((e) => isJobOpenForToday(e, t))
+    .sort((a, b) => {
+      const am = minDate(a.dates);
+      const bm = minDate(b.dates);
+      return (am ?? "").localeCompare(bm ?? "");
+    });
+});
+
+const entriesClosedSorted = computed(() => {
+  const t = todayIso.value;
+  return entries.value
+    .filter((e) => !isJobOpenForToday(e, t))
+    .sort((a, b) => {
+      const am = minDate(a.dates);
+      const bm = minDate(b.dates);
+      return (am ?? "").localeCompare(bm ?? "");
+    });
+});
 
 function minDate(dates: string[]): string | null {
   if (!dates.length) return null;
@@ -1834,6 +1913,24 @@ html.theme-dark .delete-job-card.draft-bubble-theme.surface-card {
 
 .entry-list {
   padding: 0 !important;
+}
+
+.job-section-label {
+  margin: 0;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  color: var(--plan-hint);
+}
+
+.job-section-label--spaced {
+  margin-top: 20px;
+}
+
+.entry-item--closed:not(.entry-item--highlight) .entry-title,
+.entry-item--closed:not(.entry-item--highlight) .entry-sub {
+  opacity: 0.72;
 }
 
 .entry-item {
