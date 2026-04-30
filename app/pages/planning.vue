@@ -264,6 +264,7 @@
                     :class="{ 'job-section-label--spaced': entriesUpNextSorted.length > 0 }"
                   >
                     Open
+                    <span class="job-section-count">({{ openJobsCount }})</span>
                   </p>
                   <v-list bg-color="transparent" class="entry-list" density="comfortable">
                     <v-list-item
@@ -313,6 +314,7 @@
                     }"
                   >
                     Closed
+                    <span class="job-section-count">({{ closedJobsCount }})</span>
                   </p>
                   <v-list bg-color="transparent" class="entry-list" density="comfortable">
                     <v-list-item
@@ -872,6 +874,12 @@ const entriesClosedSorted = computed(() => {
   const closed = entries.value.filter((e) => !isJobOpenForToday(e, t));
   return sortClosedJobs(closed);
 });
+
+const openJobsCount = computed(
+  () => entriesUpNextSorted.value.length + entriesOpenRestSorted.value.length,
+);
+
+const closedJobsCount = computed(() => entriesClosedSorted.value.length);
 
 function minDate(dates: string[]): string | null {
   if (!dates.length) return null;
@@ -2017,6 +2025,12 @@ html.theme-dark .delete-job-card.draft-bubble-theme.surface-card {
 
 .job-section-label--spaced {
   margin-top: 20px;
+}
+
+.job-section-count {
+  font-weight: 650;
+  color: var(--plan-muted);
+  margin-inline-start: 0.28em;
 }
 
 .entry-item--up-next:not(.entry-item--highlight) {
