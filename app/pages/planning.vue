@@ -155,7 +155,10 @@
                   class="mini-month"
                 >
                   <div class="mini-month__title">
-                    {{ monthTitle(year, m - 1) }}
+                    <span class="mini-month__name">{{ monthTitle(year, m - 1) }}</span>
+                    <span class="mini-month__units" aria-label="Logged day-units this month">
+                      · {{ formatDayUnits(loggedDayUnitsInMonth(year, m - 1)) }}
+                    </span>
                   </div>
                   <div class="weekday-row">
                     <span v-for="(w, wi) in weekdayLetters" :key="wi">{{ w }}</span>
@@ -809,21 +812,35 @@ const progressPct = computed(() => {
   return Math.min(100, Math.round((uniqueDaysInSelectedYear.value / t) * 100));
 });
 
+function formatDayUnits(n: number): string {
+  return n === Math.round(n) ? String(Math.round(n)) : n.toFixed(1).replace(/\.0$/, "");
+}
+
 const progressNote = computed(() => {
   const u = uniqueDaysInSelectedYear.value;
   const t = comfortTarget.value;
-  const fmt = (n: number) =>
-    n === Math.round(n) ? String(Math.round(n)) : n.toFixed(1).replace(/\.0$/, "");
   if (u < t) {
     const diff = t - u;
-    return `${fmt(diff)} more day-units to reach comfort.`;
+    return `${formatDayUnits(diff)} more day-units to reach comfort.`;
   }
   if (u === t) {
     return "Met comfort target for this year.";
   }
   const over = u - t;
-  return `${fmt(over)} day-unit${over === 1 ? "" : "s"} above comfort target for this year.`;
+  return `${formatDayUnits(over)} day-unit${over === 1 ? "" : "s"} above comfort target for this year.`;
 });
+
+/** Sum of job day weights in this calendar month (same semantics as yearly “Logged days”). */
+function loggedDayUnitsInMonth(y: number, monthIndex: number): number {
+  const prefix = `${y}-${String(monthIndex + 1).padStart(2, "0")}-`;
+  let sum = 0;
+  for (const e of entries.value) {
+    for (const { date, weight } of e.days) {
+      if (typeof date === "string" && date.startsWith(prefix)) sum += weight;
+    }
+  }
+  return sum;
+}
 
 /** Latest work day for a job; open until this day is before today (ISO YYYY-MM-DD compares lexicographically). */
 function maxDate(dates: string[]): string | null {
@@ -2306,11 +2323,21 @@ html.theme-dark .delete-job-card.draft-bubble-theme.surface-card {
 
 .mini-month__title {
   grid-column: 1 / -1;
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 0.3em;
+  flex-wrap: wrap;
   font-size: 0.8125rem;
   font-weight: 750;
   margin: 0;
   text-align: center;
   color: var(--plan-text);
+}
+
+.mini-month__units {
+  font-weight: 650;
+  color: var(--plan-hint);
 }
 
 .weekday-row {
