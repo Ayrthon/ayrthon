@@ -157,7 +157,7 @@
                   <div class="mini-month__title">
                     <span class="mini-month__name">{{ monthTitle(year, m - 1) }}</span>
                     <span class="mini-month__units" aria-label="Logged day-units this month">
-                      · {{ formatDayUnits(loggedDayUnitsInMonth(year, m - 1)) }}
+                      ({{ formatDayUnits(loggedDayUnitsInMonth(year, m - 1)) }})
                     </span>
                   </div>
                   <div class="weekday-row">
